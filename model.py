@@ -22,6 +22,14 @@ class ListName(Event): pass
 class PresetName(Event): pass
 
 @dataclass(frozen=True, slots=True)
+class ParamChangeInt(Event):
+	nr: int
+
+@dataclass(frozen=True, slots=True)
+class ParamChangeFlt(Event):
+	nr: int
+
+@dataclass(frozen=True, slots=True)
 class ModuleEvent(Event):
 	mod_idx: int
 

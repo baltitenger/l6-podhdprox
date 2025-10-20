@@ -8,21 +8,18 @@ from PySide6.QtWidgets import QApplication
 from usb1 import HOTPLUG_EVENT_DEVICE_ARRIVED, USBContext, USBDevice # type: ignore
 
 from model import Model, SetlistModel, WholePreset
+from util import make_callback
 from view import MainWindow, Slot
 from usb_adapter import UsbAdapter
 from pxio import parse_pxb
 
-async def on_hotplug(dev: USBDevice):
-	hdl = dev.open()
-	ad = UsbAdapter(hdl, model)
-	async with asyncio.TaskGroup() as tg:
-		tg.create_task(ad.rx_loop())
-		tg.create_task(ad.rx_preset())
-
-def hotplug_callback(ctx: USBContext, dev: USBDevice, event: int):
-	print(dev, event)
+async def on_hotplug(ctx: USBContext, dev: USBDevice, event: int):
 	if event == HOTPLUG_EVENT_DEVICE_ARRIVED:
-		loop.create_task(on_hotplug(dev))
+		hdl = dev.open()
+		ad = UsbAdapter(hdl, model)
+		async with asyncio.TaskGroup() as tg:
+			tg.create_task(ad.rx_loop())
+			tg.create_task(ad.rx_preset())
 	# TODO handle disconnect
 
 def usb_poller():
@@ -36,13 +33,12 @@ def stop_usb_poller():
 	usb_ctx.interruptEventHandler()
 
 async def main(app: QApplication):
-	global model, loop, run
+	global model, run
 	run = True
-	loop = asyncio.get_event_loop()
 
 	model = Model()
 
-	usb_ctx.hotplugRegisterCallback(hotplug_callback, vendor_id=0x0e41, product_id=0x415a)
+	usb_ctx.hotplugRegisterCallback(make_callback(on_hotplug), vendor_id=0x0e41, product_id=0x415a)
 	asyncio.get_event_loop().run_in_executor(None, usb_poller)
 
 	mw = MainWindow(model, stop_usb_poller)

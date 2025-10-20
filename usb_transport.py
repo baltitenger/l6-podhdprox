@@ -5,34 +5,30 @@ from typing import cast
 from usb1 import TRANSFER_COMPLETED, USBDeviceHandle, USBTransfer # type: ignore
 
 from structs import LEStruct
-from util import chunk_bytes
+from util import chunk_bytes, make_callback
 
 struct = LEStruct
 
 class Transport:
 	def __init__(self, hdl: USBDeviceHandle) -> None:
 		self.in_xfer = hdl.getTransfer()
-		self.in_xfer.setBulk(0x81, 0x100, self.on_recv_)
+		self.in_xfer.setBulk(0x81, 0x100, make_callback(self.on_recv))
 
 		self.out_xfer = hdl.getTransfer()
-		self.out_xfer.setBulk(0x01, 0x100, self.on_send_)
+		self.out_xfer.setBulk(0x01, 0x100, make_callback(self.on_send))
 
 		self.send_lk = asyncio.Lock()
 
-	def on_recv_(self, xfer: USBTransfer):
-		self.loop.call_soon_threadsafe(self.on_recv)
-	
-	def on_recv(self):
-		fut = cast(asyncio.Future[bytes], self.in_xfer.getUserData())
-		if self.in_xfer.getStatus() != TRANSFER_COMPLETED:
-			fut.set_exception(ValueError('USB recv error', self.in_xfer.getStatus()))
+	async def on_recv(self, xfer: USBTransfer):
+		fut = cast(asyncio.Future[bytes], xfer.getUserData())
+		if xfer.getStatus() != TRANSFER_COMPLETED:
+			fut.set_exception(ValueError('USB recv error', xfer.getStatus()))
 		else:
-			buf = cast(bytearray, self.in_xfer.getBuffer())
-			fut.set_result(bytes(buf[:self.in_xfer.getActualLength()]))
-	
+			buf = cast(bytearray, xfer.getBuffer())
+			fut.set_result(bytes(buf[:xfer.getActualLength()]))
+
 	async def rx0(self):
-		self.loop = asyncio.get_event_loop()
-		fut: asyncio.Future[bytes] = self.loop.create_future()
+		fut: asyncio.Future[bytes] = asyncio.get_event_loop().create_future()
 		self.in_xfer.setUserData(fut)
 		self.in_xfer.submit()
 		return await fut
@@ -71,21 +67,17 @@ class Transport:
 				continue
 			await self.on_pkt(is_resp, typ, data)
 
-	async def on_pkt(self, is_resp: int, typ: int, data: bytes): ...
+	async def on_pkt(self, is_resp: int, cmd: int, data: bytes): ...
 
-	def on_send_(self, xfer: USBTransfer):
-		self.loop.call_soon_threadsafe(self.on_send)
-
-	def on_send(self):
-		fut = cast(asyncio.Future[None], self.out_xfer.getUserData())
-		if self.out_xfer.getStatus() != TRANSFER_COMPLETED:
-			fut.set_exception(ValueError('USB send error', self.out_xfer.getStatus()))
+	async def on_send(self, xfer: USBTransfer):
+		fut = cast(asyncio.Future[None], xfer.getUserData())
+		if xfer.getStatus() != TRANSFER_COMPLETED:
+			fut.set_exception(ValueError('USB send error', xfer.getStatus()))
 		else:
 			fut.set_result(None)
 
 	async def tx0(self, data: bytes):
-		self.loop = asyncio.get_event_loop()
-		self.fut = self.loop.create_future()
+		self.fut = asyncio.get_event_loop().create_future()
 		fut = asyncio.Future[None]()
 		self.out_xfer.setUserData(fut)
 		self.out_xfer.setBuffer(data)
