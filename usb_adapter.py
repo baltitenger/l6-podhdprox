@@ -1,11 +1,8 @@
-import asyncio
-from typing import cast
-
 from usb1 import USBDeviceHandle
 
 import model
-from realdata import models, semitones
-from structs import KnobState, PresetState, params
+from realdata import semitones
+from structs import PresetState, params
 from usb_transport import Transport, struct
 
 cmd2evt: dict[int, type[model.Event]] = {

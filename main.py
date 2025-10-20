@@ -8,10 +8,10 @@ from PySide6.QtWidgets import QApplication
 from usb1 import HOTPLUG_EVENT_DEVICE_ARRIVED, USBContext, USBDevice # type: ignore
 
 from model import Model, SetlistModel, WholePreset
+from pxio import parse_pxb
+from usb_adapter import UsbAdapter
 from util import make_callback
 from view import MainWindow, Slot
-from usb_adapter import UsbAdapter
-from pxio import parse_pxb
 
 async def on_hotplug(ctx: USBContext, dev: USBDevice, event: int):
 	if event == HOTPLUG_EVENT_DEVICE_ARRIVED:

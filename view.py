@@ -1,8 +1,11 @@
 from __future__ import annotations
+from bisect import bisect
 from contextlib import contextmanager
+from dataclasses import dataclass
+from itertools import pairwise
 
 from PySide6.QtCore import QObject, QPoint, QSize, Qt, Slot
-from PySide6.QtGui import QAction, QIcon, QPainter, QPen, QPixmap
+from PySide6.QtGui import QAction, QIcon, QMouseEvent, QPainter, QPen, QPixmap
 from PySide6.QtWidgets import (
 	QApplication,
 	QCheckBox,
@@ -19,7 +22,7 @@ from PySide6.QtWidgets import (
 
 from model import EvListener, Event
 import model
-from realdata import categories, dropdowns, models, Model
+from realdata import Model, categories, dropdowns, models
 from structs import KnobState, ModState, no_mod
 
 amps = [ mod for mod in models.values() if mod.id >> 16 == 0x0007 ]
@@ -178,6 +181,7 @@ class ModView(ModViewBase):
 		super().__init__(mw, side, mod_idx, col)
 
 		self.img = QLabel(alignment=Qt.AlignmentFlag.AlignCenter)
+		# self.img.setCursor(Qt.CursorShape.OpenHandCursor)
 		mw.gr.addWidget(self.img, side % 2, col, 1 + side//2, 1)
 
 		self.mod_menu = ModMenu(self.mod)
@@ -220,7 +224,7 @@ class AmpModView(ModViewBase):
 
 		self.cabbox = QComboBox()
 		self.cabbox.setStyleSheet("QComboBox { padding-top: 1px; padding-bottom: 1px; }");
-		self.cabbox.addItems([cab.name for cab in cabs]) # TODO No cab
+		self.cabbox.addItems([cab.name for cab in cabs])
 		self.cabbox.currentIndexChanged.connect(self.cab_changed)
 		self.cabbox.setToolTip('Cab')
 		mw.gr.addWidget(self.cabbox, 2, col+1)
@@ -308,8 +312,17 @@ class Line2(QWidget):
 			QPoint(w, h//2),
 		])
 
+@dataclass
+class InsPoint:
+	lane: int
+	lane_pos: int
+	side: int
+	col: int
+
 class MainWindow(QMainWindow, EvListener):
 	mods: dict[int, ModViewBase]
+	cols: dict[int, int] # col -> mod_idx
+	ins_points: list[InsPoint]
 
 	def __init__(self, model: model.Model, on_closed):
 		super().__init__()
@@ -321,6 +334,9 @@ class MainWindow(QMainWindow, EvListener):
 		tb.addAction(QIcon.fromTheme(QIcon.ThemeIcon.GoPrevious), 'Prev preset')
 		tb.addAction(QIcon.fromTheme(QIcon.ThemeIcon.GoNext), 'Next preset')
 
+		self.dragmod = -1
+		self.dropins = -1
+	
 	async def on_ev(self, ev: Event):
 		match ev:
 			case model.WholePreset():
@@ -330,7 +346,8 @@ class MainWindow(QMainWindow, EvListener):
 				match ev:
 					case model.KnobValue():
 						kn.refresh_val()
-			case model.ModuleType():
+			# TODO update these too
+			case model.ModuleType(mod_idx):
 				self.reload()
 			case model.ModuleEvent(mod_idx):
 				mod = self.mods.get(mod_idx)
@@ -346,49 +363,58 @@ class MainWindow(QMainWindow, EvListener):
 		if col is None:
 			col = self.gr.columnCount()
 		if mod_idx < 2:
-			self.mods[mod_idx] = AmpModView(self, side, mod_idx, col)
+			mod = AmpModView(self, side, mod_idx, col)
 		else:
-			self.mods[mod_idx] = ModView(self, side, mod_idx, col)
+			mod = ModView(self, side, mod_idx, col)
+		self.mods[mod_idx] = mod
+		self.cols[col] = mod_idx
+
+	def pr_lane(self, side: int, lane: int):
+		if not (self.ins_points and self.ins_points[-1].side == side and self.ins_points[-1].col == self.gr.columnCount()-1):
+			self.ins_points.append(InsPoint(lane, 0, side, self.gr.columnCount()-1))
+		for i, m in enumerate(self.lanes[lane]):
+			self.create_mod(side, m)
+			self.ins_points.append(InsPoint(lane, i+1, side, self.gr.columnCount()-1))
 
 	def reload(self):
 		self.mods = {}
+		self.cols = {}
+		self.ins_points = []
 		widget = QWidget()
 		self.setCentralWidget(widget)
 		self.gr = QGridLayout(widget)
 		mods = self.model.preset.modules
-		lanes: list[list[int]] = [ [] for _ in range(10) ]
+		self.lanes: list[list[int]] = [ [] for _ in range(10) ]
 		for i, mod in enumerate(mods):
-			lanes[(mod.pos>>16) & 0xff].append(i)
-		for lane in lanes:
+			self.lanes[(mod.pos>>16) & 0xff].append(i)
+		for lane in self.lanes:
 			lane.sort(key=lambda i: mods[i].pos & 0xff)
-		def pr_lane(side: int, lane: int):
-			for m in lanes[lane]:
-				self.create_mod(side, m)
 		amp_pos = mods[0].pos & 0xff
-		pr_lane(MID, 0)
+		self.pr_lane(MID, 0)
 		if amp_pos == 5:
 			self.create_mod(MID, 0)
-		lrsplit = self.gr.columnCount()
-		pr_lane(LEFT, 1)
+		self.lrsplit = self.gr.columnCount()
+		self.pr_lane(LEFT, 1)
 		if amp_pos == 0:
 			self.create_mod(LEFT, 0)
-		pr_lane(LEFT, 3)
-		pr_lane(RIGHT, 2)
+		self.pr_lane(LEFT, 3)
+		self.lrswitch = self.gr.columnCount()
+		self.pr_lane(RIGHT, 2)
 		if amp_pos == 0:
 			self.create_mod(RIGHT, 1)
-		pr_lane(RIGHT, 4)
+		self.pr_lane(RIGHT, 4)
 		# print(  '  mix  ')
-		lrjoin = self.gr.columnCount()
+		self.lrjoin = self.gr.columnCount()
 		if amp_pos == 7:
 			self.create_mod(MID, 0)
-		pr_lane(MID, 5)
+		self.pr_lane(MID, 5)
 
 		line1 = Line1()
 		line2 = Line2()
 		line3 = Line1()
-		self.gr.addWidget(line1, 0, 1, 2, lrsplit-1)
-		self.gr.addWidget(line2, 0, lrsplit, 2, lrjoin-lrsplit)
-		self.gr.addWidget(line3, 0, lrjoin, 2, self.gr.columnCount() - lrjoin)
+		self.gr.addWidget(line1, 0, 1, 2, self.lrsplit-1)
+		self.gr.addWidget(line2, 0, self.lrsplit, 2, self.lrjoin-self.lrsplit)
+		self.gr.addWidget(line3, 0, self.lrjoin, 2, self.gr.columnCount() - self.lrjoin)
 		line1.lower()
 		line2.lower()
 		line3.lower()
@@ -396,3 +422,88 @@ class MainWindow(QMainWindow, EvListener):
 	def closeEvent(self, event, /) -> None:
 		self.on_closed()
 		return super().closeEvent(event)
+
+	def is_valid_drag(self, ev: QMouseEvent):
+		top = self.centralWidget().y() + self.gr.cellRect(0, 0).top()
+		bot = self.centralWidget().y() + self.gr.cellRect(1, 0).bottom()
+		return top < ev.y() < bot
+
+	def mouse2col(self, ev: QMouseEvent):
+		if not self.is_valid_drag(ev):
+			return -1
+		return bisect(range(self.gr.columnCount()), ev.x(), key=lambda col: self.gr.cellRect(0, col).left()) - 1
+
+	def mouse2ins(self, ev: QMouseEvent):
+		if not self.is_valid_drag(ev):
+			return -1
+		x0 = self.centralWidget().x() + self.gr.verticalSpacing() // 2
+		def getx(ip: InsPoint):
+			return x0 + self.gr.cellRect(0, ip.col).right()
+		midpoints = [ (getx(a)+getx(b))//2 for a, b in pairwise(self.ins_points) ]
+		return bisect(midpoints, ev.x())
+
+	def mousePressEvent(self, event: QMouseEvent, /) -> None:
+		if event.button() != Qt.MouseButton.LeftButton:
+			return
+		col = self.mouse2col(event)
+		self.dragmod = self.cols.get(col, self.cols.get(col-1, -1))
+		if self.dragmod != -1:
+			self.setCursor(Qt.CursorShape.DragMoveCursor)
+
+	def mouseReleaseEvent(self, event: QMouseEvent, /) -> None:
+		if self.dragmod == -1:
+			return
+		self.setCursor(Qt.CursorShape.ArrowCursor)
+		dragmod, dropins = self.dragmod, self.dropins
+		self.dragmod = self.dropins = -1
+		if dropins == -1:
+			return
+		ins_pt = self.ins_points[dropins]
+		if dragmod < 2: # amp
+			pass # TODO
+		else:
+			src = self.lanes[(self.mods[dragmod].mod.pos>>16) & 0xff]
+			dst = self.lanes[ins_pt.lane]
+			if src is dst and dst.index(dragmod) < ins_pt.lane_pos:
+				ins_pt.lane_pos -= 1
+			src.remove(dragmod)
+			dst.insert(ins_pt.lane_pos, dragmod)
+			for nr, (lane, mod_idx) in enumerate((lane, mod_idx) for lane, l in enumerate(self.lanes) for mod_idx in l if mod_idx >= 4):
+				self.mods[mod_idx].mod.pos = 0x05 << 24 | lane << 16 | nr
+		self.send_ev(model.WholePreset())
+		self.reload()
+		self.update()
+
+	def mouseMoveEvent(self, event: QMouseEvent, /) -> None:
+		if self.dragmod == -1:
+			return
+		dropins = self.mouse2ins(event)
+		if dropins != -1:
+			ins = self.ins_points[dropins]
+			lane = self.lanes[ins.lane]
+			if ins.lane_pos < len(lane) and lane[ins.lane_pos] == self.dragmod:
+				dropins = -1
+		if dropins > 0:
+			ins = self.ins_points[dropins-1]
+			lane = self.lanes[ins.lane]
+			if ins.lane_pos < len(lane) and lane[ins.lane_pos] == self.dragmod:
+				dropins = -1
+		if dropins != self.dropins:
+			self.dropins = dropins
+			self.update()
+
+	def paintEvent(self, event, /) -> None:
+		super().paintEvent(event)
+
+		if self.dropins == -1:
+			return
+
+		ins = self.ins_points[self.dropins]
+		side = ins.side
+
+		painter = QPainter(self)
+		app: QApplication = QApplication.instance() # type: ignore
+		painter.setPen(QPen(app.palette().accent().color(), 3))
+		x = self.centralWidget().x() + self.gr.cellRect(0, ins.col).right() + self.gr.verticalSpacing() // 2
+		y = self.centralWidget().y() + (self.gr.cellRect(side % 2, 0).top() + self.gr.cellRect(side // 2 + side % 2, 0).bottom()) // 2
+		painter.drawLine(x, y-50, x, y+50)
