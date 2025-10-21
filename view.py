@@ -369,12 +369,19 @@ class MainWindow(QMainWindow, EvListener):
 		self.mods[mod_idx] = mod
 		self.cols[col] = mod_idx
 
+	def add_ins_point(self, lane: int, lane_pos: int, side: int):
+		col = self.gr.columnCount() - 1
+		if self.ins_points:
+			last = self.ins_points[-1]
+			if last.side == side and last.col == col:
+				return
+		self.ins_points.append(InsPoint(lane, lane_pos, side, col))
+
 	def pr_lane(self, side: int, lane: int):
-		if not (self.ins_points and self.ins_points[-1].side == side and self.ins_points[-1].col == self.gr.columnCount()-1):
-			self.ins_points.append(InsPoint(lane, 0, side, self.gr.columnCount()-1))
 		for i, m in enumerate(self.lanes[lane]):
+			self.add_ins_point(lane, i, side)
 			self.create_mod(side, m)
-			self.ins_points.append(InsPoint(lane, i+1, side, self.gr.columnCount()-1))
+		self.add_ins_point(lane, len(self.lanes[lane]), side)
 
 	def reload(self):
 		self.mods = {}
@@ -383,6 +390,8 @@ class MainWindow(QMainWindow, EvListener):
 		widget = QWidget()
 		self.setCentralWidget(widget)
 		self.gr = QGridLayout(widget)
+		self.gr.setRowMinimumHeight(0, 60)
+		self.gr.setRowMinimumHeight(1, 60)
 		mods = self.model.preset.modules
 		self.lanes: list[list[int]] = [ [] for _ in range(10) ]
 		for i, mod in enumerate(mods):
@@ -442,8 +451,15 @@ class MainWindow(QMainWindow, EvListener):
 		midpoints = [ (getx(a)+getx(b))//2 for a, b in pairwise(self.ins_points) ]
 		return bisect(midpoints, ev.x())
 
+	def drag_end(self):
+		self.dragmod = self.dropins = -1
+		self.setCursor(Qt.CursorShape.ArrowCursor)
+
 	def mousePressEvent(self, event: QMouseEvent, /) -> None:
 		if event.button() != Qt.MouseButton.LeftButton:
+			if self.dragmod != -1:
+				self.drag_end()
+				self.update()
 			return
 		col = self.mouse2col(event)
 		self.dragmod = self.cols.get(col, self.cols.get(col-1, -1))
@@ -451,25 +467,25 @@ class MainWindow(QMainWindow, EvListener):
 			self.setCursor(Qt.CursorShape.DragMoveCursor)
 
 	def mouseReleaseEvent(self, event: QMouseEvent, /) -> None:
+		mods = self.model.preset.modules
 		if self.dragmod == -1:
 			return
-		self.setCursor(Qt.CursorShape.ArrowCursor)
 		dragmod, dropins = self.dragmod, self.dropins
-		self.dragmod = self.dropins = -1
+		self.drag_end()
 		if dropins == -1:
 			return
 		ins_pt = self.ins_points[dropins]
 		if dragmod < 2: # amp
 			pass # TODO
 		else:
-			src = self.lanes[(self.mods[dragmod].mod.pos>>16) & 0xff]
+			src = self.lanes[(mods[dragmod].pos>>16) & 0xff]
 			dst = self.lanes[ins_pt.lane]
 			if src is dst and dst.index(dragmod) < ins_pt.lane_pos:
 				ins_pt.lane_pos -= 1
 			src.remove(dragmod)
 			dst.insert(ins_pt.lane_pos, dragmod)
 			for nr, (lane, mod_idx) in enumerate((lane, mod_idx) for lane, l in enumerate(self.lanes) for mod_idx in l if mod_idx >= 4):
-				self.mods[mod_idx].mod.pos = 0x05 << 24 | lane << 16 | nr
+				mods[mod_idx].pos = 0x05 << 24 | lane << 16 | nr
 		self.send_ev(model.WholePreset())
 		self.reload()
 		self.update()
@@ -482,12 +498,18 @@ class MainWindow(QMainWindow, EvListener):
 			ins = self.ins_points[dropins]
 			lane = self.lanes[ins.lane]
 			if ins.lane_pos < len(lane) and lane[ins.lane_pos] == self.dragmod:
-				dropins = -1
-		if dropins > 0:
-			ins = self.ins_points[dropins-1]
-			lane = self.lanes[ins.lane]
-			if ins.lane_pos < len(lane) and lane[ins.lane_pos] == self.dragmod:
-				dropins = -1
+				if dropins-1 >= 0 and self.ins_points[dropins-1].col == ins.col:
+					dropins -= 1
+				else:
+					dropins = -1
+			if dropins > 0:
+				ins2 = self.ins_points[dropins-1]
+				lane = self.lanes[ins2.lane]
+				if ins2.lane_pos < len(lane) and lane[ins2.lane_pos] == self.dragmod:
+					if dropins+1 < len(self.ins_points) and self.ins_points[dropins+1].col == ins.col:
+						dropins += 1
+					else:
+						dropins = -1
 		if dropins != self.dropins:
 			self.dropins = dropins
 			self.update()
