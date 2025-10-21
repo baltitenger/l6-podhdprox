@@ -32,6 +32,10 @@ cabs = [ mod for mod in models.values() if mod.id >> 16 == 0x0107 ] + [no_cab]
 cab_index = { mod.id: i for i, mod in enumerate(cabs) }
 mics = [ mod for mod in models.values() if mod.id >> 16 == 0x0000 ]
 
+lane2amp = [0, 0, 1, 0, 1, 0]
+lane2amp_pos = [5, 0, 0, 0, 0, 7]
+lane2amp_end = [1, 1, 1, 0, 0, 0]
+
 @contextmanager
 def no_signals(obj: QObject):
 	obj.blockSignals(True)
@@ -398,7 +402,7 @@ class MainWindow(QMainWindow, EvListener):
 			self.lanes[(mod.pos>>16) & 0xff].append(i)
 		for lane in self.lanes:
 			lane.sort(key=lambda i: mods[i].pos & 0xff)
-		amp_pos = mods[0].pos & 0xff
+		self.amp_pos = amp_pos = mods[0].pos & 0xff
 		self.pr_lane(MID, 0)
 		if amp_pos == 5:
 			self.create_mod(MID, 0)
@@ -466,6 +470,9 @@ class MainWindow(QMainWindow, EvListener):
 		if self.dragmod != -1:
 			self.setCursor(Qt.CursorShape.DragMoveCursor)
 
+	def swap_amps(self):
+		pass # TODO
+
 	def mouseReleaseEvent(self, event: QMouseEvent, /) -> None:
 		mods = self.model.preset.modules
 		if self.dragmod == -1:
@@ -474,42 +481,65 @@ class MainWindow(QMainWindow, EvListener):
 		self.drag_end()
 		if dropins == -1:
 			return
-		ins_pt = self.ins_points[dropins]
+		ins = self.ins_points[dropins]
 		if dragmod < 2: # amp
-			pass # TODO
+			if lane2amp[ins.lane] != dragmod:
+				self.swap_amps()
+			mods[0].pos = 0x0507 << 16 | lane2amp_pos[ins.lane]
+			if ins.lane not in (0, 5):
+				if ins.lane in (1, 3):
+					a, b = 1, 3
+				else:
+					a, b = 2, 4
+				merged = self.lanes[a] + self.lanes[b]
+				pt = ins.lane_pos
+				if ins.lane == b:
+					pt += len(self.lanes[a])
+				self.lanes[a] = merged[:pt]
+				self.lanes[b] = merged[pt:]
 		else:
 			src = self.lanes[(mods[dragmod].pos>>16) & 0xff]
-			dst = self.lanes[ins_pt.lane]
-			if src is dst and dst.index(dragmod) < ins_pt.lane_pos:
-				ins_pt.lane_pos -= 1
+			dst = self.lanes[ins.lane]
+			if src is dst and dst.index(dragmod) < ins.lane_pos:
+				ins.lane_pos -= 1
 			src.remove(dragmod)
-			dst.insert(ins_pt.lane_pos, dragmod)
-			for nr, (lane, mod_idx) in enumerate((lane, mod_idx) for lane, l in enumerate(self.lanes) for mod_idx in l if mod_idx >= 4):
-				mods[mod_idx].pos = 0x05 << 24 | lane << 16 | nr
+			dst.insert(ins.lane_pos, dragmod)
+		for nr, (lane, mod_idx) in enumerate((lane, mod_idx) for lane, l in enumerate(self.lanes) for mod_idx in l if mod_idx >= 4):
+			mods[mod_idx].pos = 0x05 << 24 | lane << 16 | nr
 		self.send_ev(model.WholePreset())
 		self.reload()
 		self.update()
 
+	def fix_ins_point(self, dropins: int) -> int:
+		if dropins == -1:
+			return -1
+		ins = self.ins_points[dropins]
+		lane = self.lanes[ins.lane]
+		if self.dragmod < 2:
+			amp_pos = lane2amp_pos[ins.lane]
+			lane_pos = lane2amp_end[ins.lane] * len(lane)
+			if self.amp_pos == amp_pos and ins.lane_pos == lane_pos and lane2amp[ins.lane] == self.dragmod:
+				return -1
+			if ins.lane in (0, 5) and ins.lane_pos != lane_pos:
+				return -1
+		else:
+			if self.dragmod not in lane:
+				return dropins
+			lane_pos = lane.index(self.dragmod)
+			if ins.lane_pos == lane_pos:
+				if dropins-1 >= 0 and self.ins_points[dropins-1].col == ins.col:
+					return dropins - 1
+				return -1
+			elif ins.lane_pos == lane_pos + 1:
+				if dropins+1 < len(self.ins_points) and self.ins_points[dropins+1].col == ins.col:
+					return dropins + 1
+				return -1
+		return dropins
+
 	def mouseMoveEvent(self, event: QMouseEvent, /) -> None:
 		if self.dragmod == -1:
 			return
-		dropins = self.mouse2ins(event)
-		if dropins != -1:
-			ins = self.ins_points[dropins]
-			lane = self.lanes[ins.lane]
-			if ins.lane_pos < len(lane) and lane[ins.lane_pos] == self.dragmod:
-				if dropins-1 >= 0 and self.ins_points[dropins-1].col == ins.col:
-					dropins -= 1
-				else:
-					dropins = -1
-			if dropins > 0:
-				ins2 = self.ins_points[dropins-1]
-				lane = self.lanes[ins2.lane]
-				if ins2.lane_pos < len(lane) and lane[ins2.lane_pos] == self.dragmod:
-					if dropins+1 < len(self.ins_points) and self.ins_points[dropins+1].col == ins.col:
-						dropins += 1
-					else:
-						dropins = -1
+		dropins = self.fix_ins_point(self.mouse2ins(event))
 		if dropins != self.dropins:
 			self.dropins = dropins
 			self.update()
