@@ -44,12 +44,14 @@ async def main(app: QApplication):
 	mw = MainWindow(model, stop_usb_poller)
 	# FIXME temp
 	with open('junk/reset.pxb', 'rb') as f:
+		model.bank.clear()
 		for i, (sl_name, presets) in enumerate(parse_pxb(f)):
-			model.bank[i] = sl = SetlistModel(sl_name)
+			sl = SetlistModel(sl_name)
 			sl.presets = list(presets)
+			model.bank.append(sl)
 	model.sel_list = 0
 	model.sel_preset = 3
-	model.preset = model.bank[0].presets[3] # type: ignore
+	model.preset = model.bank[0].presets[3]
 	await mw.on_ev(WholePreset())
 	mw.show()
 	await asyncio.Future()

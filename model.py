@@ -101,10 +101,10 @@ class EvListener:
 
 class SetlistModel:
 	name: str
-	presets: list[PresetState | None]
+	presets: list[PresetState]
 	def __init__(self, name: str):
 		self.name = name
-		self.presets = [None] * 64
+		self.presets = []
 
 class Model:
 	listeners: list[EvListener]
@@ -112,10 +112,10 @@ class Model:
 	sel_preset: int
 	# current, in-memory preset
 	preset: PresetState
-	bank: list[SetlistModel | None]
+	bank: list[SetlistModel]
 	# TODO store / cache other presets?
 	def __init__(self) -> None:
 		self.listeners = []
 		self.sel_list = 0
 		self.sel_preset = 0
-		self.bank = [None] * 8
+		self.bank = []

@@ -1,7 +1,15 @@
-from io import BufferedReader
+from io import BufferedReader, BufferedWriter
 from typing import Iterable
 
 from structs import BEStruct, PresetState
+
+ver = bytes.fromhex('0000 0001')
+magics = (
+	bytes.fromhex('0014 0006 0262 0000'),
+	bytes.fromhex('0227 0000'),
+	bytes.fromhex('7d01 002e'),
+)
+padlen = 0x10
 
 def parse_pxe(rd: BufferedReader) -> PresetState:
 	magic, = BEStruct.unpack('4s36x', rd.read(0x28))
@@ -19,4 +27,16 @@ def parse_pxb(rd: BufferedReader) -> Iterable[Setlist]:
 	assert magic == b'H5EB'
 	return (parse_pxs(rd) for _ in range(8))
 
-# TODO serialization
+def write_pxe(wr: BufferedWriter, p: PresetState):
+	wr.write(b'H5EP' + ver + b''.join(reversed(magics)) + bytes(padlen))
+	wr.write(p.dump(BEStruct))
+
+def write_pxs(wr: BufferedWriter, name: str, ps: Iterable[PresetState]):
+	wr.write(b'H5ES' + ver + b''.join(magics) + bytes(padlen) + BEStruct.pack('16s', name))
+	for p in ps:
+		write_pxe(wr, p)
+
+def write_pxb(wr: BufferedWriter, b: Iterable[Setlist]):
+	wr.write(b'H5EB' + ver + b''.join(magics) + bytes(padlen))
+	for name, ps in b:
+		write_pxs(wr, name, ps)

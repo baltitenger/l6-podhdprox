@@ -11,17 +11,20 @@ from PySide6.QtWidgets import (
 	QCheckBox,
 	QComboBox,
 	QDial,
+	QFileDialog,
 	QGridLayout,
 	QLabel,
 	QMainWindow,
 	QMenu,
 	QPushButton,
+	QSizePolicy,
 	QVBoxLayout,
 	QWidget,
 )
 
-from model import EvListener, Event
+from model import EvListener, Event, SetlistModel
 import model
+from pxio import parse_pxb, parse_pxe, parse_pxs, write_pxb, write_pxe, write_pxs
 from realdata import Model, categories, dropdowns, models
 from structs import KnobState, ModState, no_mod
 
@@ -335,12 +338,77 @@ class MainWindow(QMainWindow, EvListener):
 		self.on_closed = on_closed
 
 		tb = self.addToolBar('Foo')
-		tb.addAction(QIcon.fromTheme(QIcon.ThemeIcon.GoPrevious), 'Prev preset')
-		tb.addAction(QIcon.fromTheme(QIcon.ThemeIcon.GoNext), 'Next preset')
+		tb.setMovable(False)
+		tb.addAction(QIcon.fromTheme(QIcon.ThemeIcon.DocumentOpen), 'Open').triggered.connect(self.opendialog)
+		tb.addAction(QIcon.fromTheme(QIcon.ThemeIcon.DocumentSaveAs), 'Save As').triggered.connect(self.savedialog)
+		self.top_label = QLabel(alignment=Qt.AlignmentFlag.AlignCenter)
+		self.top_label.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Preferred)
+		tb.addWidget(self.top_label)
+		tb.addAction(QIcon.fromTheme(QIcon.ThemeIcon.GoPrevious), 'Prev preset').triggered.connect(self.prev_pres)
+		tb.addAction(QIcon.fromTheme('application-menu'), 'Setlists').triggered.connect(self.setlist_dialog)
+		tb.addAction(QIcon.fromTheme(QIcon.ThemeIcon.GoNext), 'Next preset').triggered.connect(self.next_pres)
 
 		self.dragmod = -1
 		self.dropins = -1
-	
+
+	@Slot(QAction)
+	def opendialog(self, act: QAction):
+		file, filt = QFileDialog.getOpenFileName(self, filter='POD HD Pro X Files (*.pxe *.pxs *.pxb)')
+		if file == '':
+			return
+		with open(file, 'rb') as f:
+			if file.endswith('.pxe'):
+				self.model.preset = parse_pxe(f)
+			elif file.endswith('.pxs'):
+				name, presets = parse_pxs(f)
+				self.model.bank[self.model.sel_list] = sl = SetlistModel(name)
+				sl.presets = list(presets)
+				self.model.preset = sl.presets[self.model.sel_preset]
+			elif file.endswith('.pxb'):
+				for i, (sl_name, presets) in enumerate(parse_pxb(f)):
+					self.model.bank[i] = sl = SetlistModel(sl_name)
+					sl.presets = list(presets)
+				self.model.preset = self.model.bank[self.model.sel_list].presets[self.model.sel_preset]
+			else:
+				print('unexpected file extension, ignoring')
+		self.reload()
+
+	@Slot(QAction)
+	def savedialog(self, act: QAction):
+		filters = (
+			'POD HD Pro X Patch Files (*.pxe)',
+			'POD HD Pro X Setlist Files (*.pxs)',
+			'POD HD Pro X Patch Bundle Files (*.pxb)',
+		)
+		file, filt = QFileDialog.getSaveFileName(self, filter=';;'.join(filters))
+		if file == '':
+			return
+		with open(file, 'wb') as f:
+			idx = filters.index(filt)
+			if idx == 0:
+				write_pxe(f, self.model.preset)
+			elif idx == 1:
+				sl: SetlistModel = self.model.bank[self.model.sel_list]
+				write_pxs(f, sl.name, sl.presets)
+			elif idx == 2:
+				write_pxb(f, ((sl.name, sl.presets) for sl in self.model.bank))
+
+	@Slot(QAction)
+	def next_pres(self, act: QAction):
+		self.model.sel_preset = (self.model.sel_preset + 1) % 64
+		self.model.preset = self.model.bank[self.model.sel_list].presets[self.model.sel_preset]
+		self.reload()
+
+	@Slot(QAction)
+	def prev_pres(self, act: QAction):
+		self.model.sel_preset = (self.model.sel_preset + 64 - 1) % 64
+		self.model.preset = self.model.bank[self.model.sel_list].presets[self.model.sel_preset]
+		self.reload()
+
+	@Slot(QAction)
+	def setlist_dialog(self, act: QAction):
+		pass # TODO
+
 	async def on_ev(self, ev: Event):
 		match ev:
 			case model.WholePreset():
@@ -388,14 +456,16 @@ class MainWindow(QMainWindow, EvListener):
 		self.add_ins_point(lane, len(self.lanes[lane]), side)
 
 	def reload(self):
+		sp = self.model.sel_preset
+		self.top_label.setText(f'{sp//4+1:02}{"ABCD"[sp%4]} {self.model.preset.name}')
 		self.mods = {}
 		self.cols = {}
 		self.ins_points = []
 		widget = QWidget()
 		self.setCentralWidget(widget)
 		self.gr = QGridLayout(widget)
-		self.gr.setRowMinimumHeight(0, 60)
-		self.gr.setRowMinimumHeight(1, 60)
+		self.gr.setRowMinimumHeight(0, 120)
+		self.gr.setRowMinimumHeight(1, 120)
 		mods = self.model.preset.modules
 		self.lanes: list[list[int]] = [ [] for _ in range(10) ]
 		for i, mod in enumerate(mods):
