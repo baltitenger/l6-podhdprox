@@ -450,10 +450,11 @@ class MainWindow(QMainWindow, EvListener):
 		self.ins_points.append(InsPoint(lane, lane_pos, side, col))
 
 	def pr_lane(self, side: int, lane: int):
-		for i, m in enumerate(self.lanes[lane]):
+		lanes = self.model.preset.lanes
+		for i, m in enumerate(lanes[lane]):
 			self.add_ins_point(lane, i, side)
 			self.create_mod(side, m)
-		self.add_ins_point(lane, len(self.lanes[lane]), side)
+		self.add_ins_point(lane, len(lanes[lane]), side)
 
 	def reload(self):
 		sp = self.model.sel_preset
@@ -467,11 +468,6 @@ class MainWindow(QMainWindow, EvListener):
 		self.gr.setRowMinimumHeight(0, 120)
 		self.gr.setRowMinimumHeight(1, 120)
 		mods = self.model.preset.modules
-		self.lanes: list[list[int]] = [ [] for _ in range(10) ]
-		for i, mod in enumerate(mods):
-			self.lanes[(mod.pos>>16) & 0xff].append(i)
-		for lane in self.lanes:
-			lane.sort(key=lambda i: mods[i].pos & 0xff)
 		self.amp_pos = amp_pos = mods[0].pos & 0xff
 		self.pr_lane(MID, 0)
 		if amp_pos == 5:
@@ -552,6 +548,7 @@ class MainWindow(QMainWindow, EvListener):
 		if dropins == -1:
 			return
 		ins = self.ins_points[dropins]
+		lanes = self.model.preset.lanes
 		if dragmod < 2: # amp
 			if lane2amp[ins.lane] != dragmod:
 				self.swap_amps()
@@ -561,21 +558,20 @@ class MainWindow(QMainWindow, EvListener):
 					a, b = 1, 3
 				else:
 					a, b = 2, 4
-				merged = self.lanes[a] + self.lanes[b]
+				merged = lanes[a] + lanes[b]
 				pt = ins.lane_pos
 				if ins.lane == b:
-					pt += len(self.lanes[a])
-				self.lanes[a] = merged[:pt]
-				self.lanes[b] = merged[pt:]
+					pt += len(lanes[a])
+				lanes[a] = merged[:pt]
+				lanes[b] = merged[pt:]
 		else:
-			src = self.lanes[(mods[dragmod].pos>>16) & 0xff]
-			dst = self.lanes[ins.lane]
+			src = lanes[mods[dragmod].lane()]
+			dst = lanes[ins.lane]
 			if src is dst and dst.index(dragmod) < ins.lane_pos:
 				ins.lane_pos -= 1
 			src.remove(dragmod)
 			dst.insert(ins.lane_pos, dragmod)
-		for nr, (lane, mod_idx) in enumerate((lane, mod_idx) for lane, l in enumerate(self.lanes) for mod_idx in l if mod_idx >= 4):
-			mods[mod_idx].pos = 0x05 << 24 | lane << 16 | nr
+		self.model.preset.recompute_positions()
 		self.send_ev(model.WholePreset())
 		self.reload()
 		self.update()
@@ -584,7 +580,7 @@ class MainWindow(QMainWindow, EvListener):
 		if dropins == -1:
 			return -1
 		ins = self.ins_points[dropins]
-		lane = self.lanes[ins.lane]
+		lane = self.model.preset.lanes[ins.lane]
 		if self.dragmod < 2:
 			amp_pos = lane2amp_pos[ins.lane]
 			lane_pos = lane2amp_end[ins.lane] * len(lane)

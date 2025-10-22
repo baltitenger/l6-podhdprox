@@ -95,6 +95,10 @@ class ModState:
 				self.pres.modules[idx+2].change_type(self.model.def_cab)
 				self.pres.int_params[0x34+idx] = self.model.def_mic
 
+	def lane(self):
+		return (self.pos >> 16) & 0xff
+
+
 	def dump(self, struct: MyPacker) -> bytes:
 		head = struct.pack(mod_fmt, self.model_id, self.pos, self.en, self.tempo1, self.tempo2, self.fs, len(self.knobs))
 		data = head + b''.join( param.dump(struct) for param in self.knobs.values() )
@@ -106,6 +110,7 @@ class PresetState:
 	modules: list[ModState]
 	flt_params: dict[int, float]
 	int_params: dict[int, int]
+	lanes: list[list[int]]
 
 	def __init__(self, data: bytes, struct: MyPacker):
 		assert len(data) == 0x1000
@@ -123,6 +128,15 @@ class PresetState:
 				self.flt_params[pid], = struct.unpack('f', data[offs:offs+4])
 			else:
 				self.int_params[pid] = data[offs]
+		self.lanes = [ [] for _ in range(6) ]
+		for i, mod in enumerate(self.modules[4:], 4):
+			self.lanes[mod.lane()].append(i)
+		for lane in self.lanes:
+			lane.sort(key=lambda i: self.modules[i].pos & 0xff)
+
+	def recompute_positions(self):
+		for nr, (lane, mod_idx) in enumerate((lane, mod_idx) for lane, l in enumerate(self.lanes) for mod_idx in l):
+			self.modules[mod_idx].pos = 0x05 << 24 | lane << 16 | nr
 
 	def dump(self, struct: MyPacker) -> bytes:
 		head = struct.pack(preset_fmt, self.name.encode(), 0x1000c)
