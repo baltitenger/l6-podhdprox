@@ -4,13 +4,25 @@ from contextlib import contextmanager
 from dataclasses import dataclass
 from itertools import pairwise
 
-from PySide6.QtCore import QObject, QPoint, QSize, Qt, Slot
-from PySide6.QtGui import QAction, QIcon, QMouseEvent, QPainter, QPen, QPixmap
+from PySide6.QtCore import (
+	QAbstractItemModel,
+	QItemSelectionModel,
+	QModelIndex,
+	QObject,
+	QPersistentModelIndex,
+	QPoint,
+	QResource,
+	QSize,
+	Qt,
+	Slot,
+)
+from PySide6.QtGui import QAction, QIcon, QMouseEvent, QPainter, QPen, QPixmap, QStandardItem, QStandardItemModel
 from PySide6.QtWidgets import (
 	QApplication,
 	QCheckBox,
 	QComboBox,
 	QDial,
+	QDialog,
 	QFileDialog,
 	QGridLayout,
 	QLabel,
@@ -19,6 +31,7 @@ from PySide6.QtWidgets import (
 	QPushButton,
 	QSizePolicy,
 	QStatusBar,
+	QTreeView,
 	QVBoxLayout,
 	QWidget,
 )
@@ -28,6 +41,7 @@ import model
 from pxio import parse_pxb, parse_pxe, parse_pxs, write_pxb, write_pxe, write_pxs
 from realdata import Model, categories, dropdowns, models, ranges
 from structs import KnobState, ModState, no_mod
+import app_rc
 
 no_amp = Model(no_mod.id, '[amp disabled]', 0, {}, [], [])
 amps = [no_amp] + [ mod for mod in models.values() if mod.id >> 16 == 0x0007 ]
@@ -126,7 +140,7 @@ MID = 2
 def load_img(mod: ModState):
 	if mod.model.img_idx == 0:
 		return QPixmap()
-	return QPixmap(f'img/{mod.model.img_idx:03}.png') \
+	return QPixmap(f':/img/{mod.model.img_idx:03}.png') \
 		.scaled(QSize(120, 120), Qt.AspectRatioMode.KeepAspectRatio)
 
 class ModMenu(QPushButton):
@@ -339,6 +353,40 @@ class InsPoint:
 	side: int
 	col: int
 
+class SetlistDialog(QDialog):
+	def __init__(self, mw: MainWindow):
+		super().__init__(mw)
+		self.mw = mw
+		self.setWindowTitle("Setlists")
+		self.tree = QTreeView(self)
+		self.tree.setHeaderHidden(True)
+		self.reload()
+
+		lay = QVBoxLayout()
+		lay.addWidget(self.tree)
+		self.setLayout(lay)
+
+	def sizeHint(self, /) -> QSize:
+		return QSize(300, self.mw.height())
+
+	def reload(self):
+		self.model = QStandardItemModel()
+		root = self.model.invisibleRootItem()
+		for sl in self.mw.model.bank:
+			sl_it = QStandardItem(sl.name)
+			sl_it.setEditable(False)
+			for i, pres in enumerate(sl.presets):
+				it = QStandardItem(f'{i//4+1:02}{"ABCD"[i%4]} {pres.name}')
+				it.setEditable(False)
+				sl_it.appendRow(it)
+			root.appendRow(sl_it)
+		self.tree.setModel(self.model)
+
+	def update_sel(self):
+		sl = self.model.index(self.mw.model.sel_list, 0)
+		idx = self.model.index(self.mw.model.sel_preset, 0, sl)
+		self.tree.selectionModel().setCurrentIndex(idx, QItemSelectionModel.SelectionFlag.ClearAndSelect)
+
 class MainWindow(QMainWindow, EvListener):
 	mods: dict[int, ModViewBase]
 	cols: dict[int, int] # col -> mod_idx
@@ -360,8 +408,10 @@ class MainWindow(QMainWindow, EvListener):
 		self.top_label.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Preferred)
 		tb.addWidget(self.top_label)
 		tb.addAction(QIcon.fromTheme(QIcon.ThemeIcon.GoPrevious), 'Prev preset').triggered.connect(self.prev_pres)
-		tb.addAction(QIcon.fromTheme('application-menu'), 'Setlists').triggered.connect(self.setlist_dialog)
+		tb.addAction(QIcon.fromTheme('application-menu'), 'Setlists').triggered.connect(self.show_setlist_dialog)
 		tb.addAction(QIcon.fromTheme(QIcon.ThemeIcon.GoNext), 'Next preset').triggered.connect(self.next_pres)
+
+		self.setlist_dialog: SetlistDialog | None = None
 
 		self.sb = QStatusBar(self)
 		self.setStatusBar(self.sb)
@@ -428,18 +478,35 @@ class MainWindow(QMainWindow, EvListener):
 	@Slot(QAction)
 	def next_pres(self, act: QAction):
 		self.model.sel_preset = (self.model.sel_preset + 1) % 64
-		self.model.preset = self.model.bank[self.model.sel_list].presets[self.model.sel_preset]
-		self.reload()
+		self.pres_changed()
 
 	@Slot(QAction)
 	def prev_pres(self, act: QAction):
 		self.model.sel_preset = (self.model.sel_preset + 64 - 1) % 64
+		self.pres_changed()
+
+	def pres_changed(self):
 		self.model.preset = self.model.bank[self.model.sel_list].presets[self.model.sel_preset]
+		if self.setlist_dialog is not None:
+			self.setlist_dialog.update_sel()
 		self.reload()
 
 	@Slot(QAction)
-	def setlist_dialog(self, act: QAction):
-		pass # TODO
+	def show_setlist_dialog(self, act: QAction):
+		if self.setlist_dialog is None:
+			self.setlist_dialog = SetlistDialog(self)
+			self.setlist_dialog.tree.activated.connect(self.dialog_click)
+		self.setlist_dialog.show()
+		self.setlist_dialog.raise_()
+		self.setlist_dialog.activateWindow()
+
+	@Slot(QModelIndex)
+	def dialog_click(self, idx: QModelIndex):
+		par = idx.parent()
+		if par.isValid():
+			self.model.sel_list = par.row()
+			self.model.sel_preset = idx.row()
+			self.pres_changed()
 
 	async def on_ev(self, ev: Event):
 		match ev:

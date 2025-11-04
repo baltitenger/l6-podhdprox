@@ -241,6 +241,13 @@ with open('defaults.bin', 'rb') as f:
 		set_defs(data[0x028:0x128])
 		set_defs(data[0x428:0x528])
 
+imgs = { mod.img_idx for mod in models.values() } - {0}
+with open('app.qrc', 'w') as f:
+	f.write('<RCC><qresource prefix="/" compression-algorithm="none">\n')
+	for i in imgs:
+		f.write(f'<file>img/{i:03}.png</file>\n')
+	f.write('</qresource></RCC>\n')
+
 with open('data.py', 'w') as f:
 	f.write('''
 from dataclasses import dataclass, field

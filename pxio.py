@@ -18,8 +18,9 @@ def parse_pxe(rd: BufferedReader) -> PresetState:
 
 type Setlist = tuple[str, Iterable[PresetState]]
 def parse_pxs(rd: BufferedReader) -> Setlist:
-	magic, name = BEStruct.unpack('4s36x16s', rd.read(0x38))
+	magic, rawname = BEStruct.unpack('4s36x16s', rd.read(0x38))
 	assert magic == b'H5ES'
+	name = rawname.rstrip(b'\0 ').decode()
 	return name, (parse_pxe(rd) for _ in range(64))
 
 def parse_pxb(rd: BufferedReader) -> Iterable[Setlist]:
