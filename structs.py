@@ -48,7 +48,7 @@ class KnobState:
 		fmt = 'ifffb3x' if self.param.id & 0xff0000 else 'iiiib3x'
 		return struct.pack(fmt, self.param.id, self.val, self.min, self.max, self.ctrl)
 
-no_mod = Model(0xffff, 'None', 0, {}, [], [])
+no_mod = Model(0x7fffffff, '[disabled]', 0, {}, [], [])
 
 mod_fmt = 'IIBBBxBxxB'
 class ModState:
@@ -76,14 +76,26 @@ class ModState:
 			return
 		self.model = models[self.model_id]
 
-	def __init__(self, pres: PresetState, buf: bytes, struct: MyPacker):
-		assert len(buf) == 0x100
+	def __init__(self, pres: PresetState, idx: int):
 		self.pres = pres
+		self.idx = idx
+		if idx < 4:
+			self.model_id = (0x0007ffff, 0x0007ffff, 0x0107ffff, 0x0107ffff)[idx]
+			self.pos      = (0x05070005, 0x05080000, 0x05070000, 0x05080000)[idx]
+		else:
+			self.model_id = 0x020dffff
+			self.pos      = (0x05000000, 0x05050000)[(idx-4)//4] + idx - 4
+		self.en = self.tempo1 = self.tempo2 = self.fs = 0
+		self.update_model()
+
+	def load(self, buf: bytes, struct: MyPacker):
+		assert len(buf) == 0x100
 		self.model_id, self.pos, self.en, self.tempo1, self.tempo2, self.fs, n_knobs = struct.unpack(mod_fmt, buf[:0x10])
 		self.update_model()
 		if self.model is not no_mod:
 			assert len(self.model.params) >= n_knobs, (self.model, len(self.model.params), n_knobs, buf.hex())
 			self.load_knobs(chunk_bytes(buf, 20, 0x10, n_knobs), struct)
+		return self
 
 	def change_type(self, model_id: int):
 		self.model_id = model_id
@@ -98,7 +110,6 @@ class ModState:
 	def lane(self):
 		return (self.pos >> 16) & 0xff
 
-
 	def dump(self, struct: MyPacker) -> bytes:
 		head = struct.pack(mod_fmt, self.model_id, self.pos, self.en, self.tempo1, self.tempo2, self.fs, len(self.knobs))
 		data = head + b''.join( param.dump(struct) for param in self.knobs.values() )
@@ -108,11 +119,18 @@ preset_fmt = '16s16xI4x'
 class PresetState:
 	name: str
 	modules: list[ModState]
+	lanes: list[list[int]]
 	flt_params: dict[int, float]
 	int_params: dict[int, int]
-	lanes: list[list[int]]
 
-	def __init__(self, data: bytes, struct: MyPacker):
+	def __init__(self):
+		self.name = 'New Tone'
+		self.modules = [ ModState(self, i) for i in range(12) ]
+		self.pos2lane()
+		self.flt_params = {}
+		self.int_params = {}
+
+	def load(self, data: bytes, struct: MyPacker):
 		assert len(data) == 0x1000
 		rawname, mcount_msize = struct.unpack(preset_fmt, data[:0x28])
 		mcount = mcount_msize & 0xff
@@ -120,7 +138,9 @@ class PresetState:
 		assert mcount == 12, f'expected 12 modules, got {mcount}'
 		assert msize == 0x100, f'expected 0x100 bytes per module, got {msize}'
 		self.name = rawname.rstrip(b'\0 ').decode()
-		self.modules = [ ModState(self, chunk, struct) for chunk in chunk_bytes(data, msize, 0x28, mcount) ]
+		for mod, chunk in zip(self.modules, chunk_bytes(data, msize, 0x28, mcount)):
+			mod.load(chunk, struct)
+		self.pos2lane()
 		self.flt_params = {}
 		self.int_params = {}
 		for pid, (is_flt, offs, name) in params.items():
@@ -128,13 +148,16 @@ class PresetState:
 				self.flt_params[pid], = struct.unpack('f', data[offs:offs+4])
 			else:
 				self.int_params[pid] = data[offs]
+		return self
+
+	def pos2lane(self):
 		self.lanes = [ [] for _ in range(6) ]
 		for i, mod in enumerate(self.modules[4:], 4):
 			self.lanes[mod.lane()].append(i)
 		for lane in self.lanes:
 			lane.sort(key=lambda i: self.modules[i].pos & 0xff)
 
-	def recompute_positions(self):
+	def lane2pos(self):
 		for nr, (lane, mod_idx) in enumerate((lane, mod_idx) for lane, l in enumerate(self.lanes) for mod_idx in l):
 			self.modules[mod_idx].pos = 0x05 << 24 | lane << 16 | nr
 

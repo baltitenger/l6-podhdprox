@@ -2,7 +2,7 @@ from usb1 import USBDeviceHandle
 
 import model
 from realdata import semitones
-from structs import PresetState, params
+from structs import no_mod, params
 from usb_transport import Transport, struct
 
 cmd2evt: dict[int, type[model.Event]] = {
@@ -62,42 +62,47 @@ class UsbAdapter(Transport, model.EvListener):
 					case model.ModuleTempo2():  arg = module.tempo2
 					case model.ModuleFswitch(): arg = module.fs
 					case _: assert False, 'messed up'
+				print('sending module event', mod, hex(arg))
 				await self.send_cmd(evt2cmd[type(ev)], struct.pack('4x2i', mod, arg))
 
 	async def on_pkt(self, is_resp: int, cmd: int, data: bytes):
 		mod_idx: int
 		knob_id: int
 
-		evt = cmd2evt.get(cmd, cmd)
+		evt = cmd2evt.get(cmd, model.Event)
 
-		match evt:
-			case model.KnobEvent:
-				mod_idx, fmt, knob_id = struct.unpack('4x3i', data[:-4])
-				knob = self.model.preset.modules[mod_idx].knobs[knob_id]
-				assert fmt in (0, 1)
-				arg, = struct.unpack('if'[fmt], data[-4:])
-				match evt:
-					case model.KnobValue: knob.val  = arg
-					case model.KnobMin:   knob.min  = arg
-					case model.KnobMax:   knob.max  = arg
-					case model.KnobCtrl:  knob.ctrl = arg
-				self.send_ev(evt(mod_idx, knob_id))
-			case model.ModuleEvent:
-				mod_idx, arg = struct.unpack('4x2i', data)
-				mod_idx = {1: 2, 2: 1}.get(mod_idx, mod_idx)
-				mod = self.model.preset.modules[mod_idx]
-				match evt:
-					case model.ModuleType:    mod.change_type(arg)
-					case model.ModuleOnOff:   mod.en     = arg
-					case model.ModuleTempo1:  mod.tempo1 = arg
-					case model.ModuleTempo2:  mod.tempo2 = arg
-					case model.ModuleFswitch: mod.fs     = arg
-				self.send_ev(evt(mod_idx))
+		if issubclass(evt, model.KnobEvent):
+			mod_idx, fmt, knob_id = struct.unpack('4x3i', data[:-4])
+			assert fmt in (0, 1)
+			arg, = struct.unpack('if'[fmt], data[-4:])
+			mod = self.model.preset.modules[mod_idx]
+			if mod.model is no_mod:
+				return
+			knob = mod.knobs[knob_id]
+			match evt:
+				case model.KnobValue: knob.val  = arg
+				case model.KnobMin:   knob.min  = arg
+				case model.KnobMax:   knob.max  = arg
+				case model.KnobCtrl:  knob.ctrl = arg
+			self.send_ev(evt(mod_idx, knob_id))
+			return
+
+		if issubclass(evt, model.ModuleEvent):
+			mod_idx, arg = struct.unpack('4x2i', data)
+			mod_idx = {1: 2, 2: 1}.get(mod_idx, mod_idx)
+			mod = self.model.preset.modules[mod_idx]
+			match evt:
+				case model.ModuleType:    mod.change_type(arg)
+				case model.ModuleOnOff:   mod.en     = arg
+				case model.ModuleTempo1:  mod.tempo1 = arg
+				case model.ModuleTempo2:  mod.tempo2 = arg
+				case model.ModuleFswitch: mod.fs     = arg
+			self.send_ev(evt(mod_idx))
+			return
+
+		match cmd:
 			case 0x01:
-				mod_idx, arg = struct.unpack('4x2i', data)
-				mod_idx = {1: 2, 2: 1}.get(mod_idx, mod_idx)
-				mod = self.model.preset.modules[mod_idx]
-				self.model.preset = PresetState(data, struct)
+				self.model.preset.load(data, struct)
 				# TODO check if it's the current one
 				self.send_ev(model.WholePreset())
 			case 0x03:

@@ -5,10 +5,9 @@ import sys
 
 from PySide6 import QtAsyncio
 from PySide6.QtWidgets import QApplication
-from usb1 import HOTPLUG_EVENT_DEVICE_ARRIVED, USBContext, USBDevice # type: ignore
+from usb1 import HOTPLUG_EVENT_DEVICE_ARRIVED, USBContext, USBDevice
 
-from model import Model, SetlistModel, WholePreset
-from pxio import parse_pxb
+from model import Model
 from usb_adapter import UsbAdapter
 from util import make_callback
 from view import MainWindow, Slot
@@ -32,7 +31,7 @@ def stop_usb_poller():
 	run = False
 	usb_ctx.interruptEventHandler()
 
-async def main(app: QApplication):
+async def async_main(app: QApplication):
 	global model, run
 	run = True
 
@@ -42,20 +41,25 @@ async def main(app: QApplication):
 	asyncio.get_event_loop().run_in_executor(None, usb_poller)
 
 	mw = MainWindow(model, stop_usb_poller)
-	# FIXME temp
-	with open('junk/reset.pxb', 'rb') as f:
-		model.bank.clear()
-		for i, (sl_name, presets) in enumerate(parse_pxb(f)):
-			sl = SetlistModel(sl_name)
-			sl.presets = list(presets)
-			model.bank.append(sl)
-	model.sel_list = 0
-	model.sel_preset = 3
-	model.preset = model.bank[0].presets[3]
-	await mw.on_ev(WholePreset())
+
+	argv = app.arguments()[1:]
+	if len(argv) == 0:
+		pass
+	elif len(argv) == 1:
+		mw.do_load_file(argv[0])
+	else:
+		print("Expected at most 1 argument (file to load)")
+		exit(1)
+
+	mw.reload()
+
 	mw.show()
 	await asyncio.Future()
 
-if __name__ == '__main__':
+def main():
+	global usb_ctx
 	with USBContext() as usb_ctx:
-		QtAsyncio.run(main(QApplication(sys.argv)), handle_sigint=True)
+		QtAsyncio.run(async_main(QApplication(sys.argv)), handle_sigint=True)
+
+if __name__ == '__main__':
+	main()

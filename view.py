@@ -18,6 +18,7 @@ from PySide6.QtWidgets import (
 	QMenu,
 	QPushButton,
 	QSizePolicy,
+	QStatusBar,
 	QVBoxLayout,
 	QWidget,
 )
@@ -25,13 +26,14 @@ from PySide6.QtWidgets import (
 from model import EvListener, Event, SetlistModel
 import model
 from pxio import parse_pxb, parse_pxe, parse_pxs, write_pxb, write_pxe, write_pxs
-from realdata import Model, categories, dropdowns, models
+from realdata import Model, categories, dropdowns, models, ranges
 from structs import KnobState, ModState, no_mod
 
-amps = [ mod for mod in models.values() if mod.id >> 16 == 0x0007 ]
+no_amp = Model(no_mod.id, '[amp disabled]', 0, {}, [], [])
+amps = [no_amp] + [ mod for mod in models.values() if mod.id >> 16 == 0x0007 ]
 amp_index = { mod.id: i for i, mod in enumerate(amps) }
-no_cab = Model(no_mod.id, 'No Cab', 0, {}, [], [])
-cabs = [ mod for mod in models.values() if mod.id >> 16 == 0x0107 ] + [no_cab]
+no_cab = Model(no_mod.id, '[no cab]', 0, {}, [], [])
+cabs = [no_cab] + [ mod for mod in models.values() if mod.id >> 16 == 0x0107 ]
 cab_index = { mod.id: i for i, mod in enumerate(cabs) }
 mics = [ mod for mod in models.values() if mod.id >> 16 == 0x0000 ]
 
@@ -48,29 +50,32 @@ def no_signals(obj: QObject):
 		obj.blockSignals(False)
 
 class KnobView(QVBoxLayout):
-	def __init__(self, ev: EvListener, mod_idx: int, knob: KnobState):
+	def __init__(self, mw: MainWindow, mod_idx: int, knob: KnobState):
 		super().__init__()
 
-		self.ev = ev
+		self.mw = mw
 		self.mod_idx = mod_idx
 		self.knob = knob
 
 	def refresh_val(self): ...
 
 	def send_ev(self, T: type[model.KnobEvent]):
-		self.ev.send_ev(T(self.mod_idx, self.knob.param.id))
+		self.mw.send_ev(T(self.mod_idx, self.knob.param.id))
 
 class DialKnobView(KnobView):
-	def __init__(self, ev: EvListener, mod_idx: int, knob: KnobState):
-		super().__init__(ev, mod_idx, knob)
+	def __init__(self, mw: MainWindow, mod_idx: int, knob: KnobState):
+		super().__init__(mw, mod_idx, knob)
 
 		self.dial = QDial()
+		self.dial.setMaximum(100)
 		self.refresh_val()
 		self.dial.actionTriggered.connect(self.valChanged)
 
 		self.addWidget(self.dial, stretch=1)
 		self.label = QLabel(knob.param.name, alignment=Qt.AlignmentFlag.AlignCenter)
 		self.addWidget(self.label)
+
+		self.range = ranges[self.knob.param.range_id]
 
 	def refresh_val(self):
 		with no_signals(self.dial):
@@ -80,10 +85,11 @@ class DialKnobView(KnobView):
 	def valChanged(self, val: int):
 		self.knob.val = self.dial.value()/100
 		self.send_ev(model.KnobValue)
+		self.mw.sb.showMessage(f'{self.knob.param.name}: {self.range.fmt(self.knob.val)}', 2000)
 
 class DropdownKnobView(KnobView):
-	def __init__(self, ev: EvListener, mod_idx: int, knob: KnobState):
-		super().__init__(ev, mod_idx, knob)
+	def __init__(self, mw: MainWindow, mod_idx: int, knob: KnobState):
+		super().__init__(mw, mod_idx, knob)
 
 		self.cbox = QComboBox()
 		self.cbox.setMaximumWidth(120)
@@ -132,7 +138,7 @@ class ModMenu(QPushButton):
 		cat_menus: dict[int, QMenu] = {}
 		for catid, cat in categories.items():
 			if catid == 13:
-				menu.addAction(cat).setData(0x02ffff)
+				menu.addAction(cat).setData(0x7fffffff)
 			else:
 				cat_menus[catid] = menu.addMenu(cat)
 		for mod in models.values():
@@ -268,8 +274,15 @@ class AmpModView(ModViewBase):
 		with no_signals(self.ampbox):
 			self.ampbox.setCurrentIndex(amp_index[self.mod.model.id])
 		self.amp_img.setPixmap(load_img(self.mod))
-		self.refresh_cab()
-		self.refresh_mic()
+		if self.mod.model is no_mod:
+			self.cab_img.hide()
+			self.cabbox.hide()
+			self.micbox.hide()
+		else:
+			self.cabbox.show()
+			self.micbox.show()
+			self.refresh_cab()
+			self.refresh_mic()
 		self.refresh_knobs()
 
 	@Slot(QAction)
@@ -337,16 +350,21 @@ class MainWindow(QMainWindow, EvListener):
 		self.model = model
 		self.on_closed = on_closed
 
-		tb = self.addToolBar('Foo')
+		tb = self.addToolBar('Main Toolbar')
 		tb.setMovable(False)
 		tb.addAction(QIcon.fromTheme(QIcon.ThemeIcon.DocumentOpen), 'Open').triggered.connect(self.opendialog)
 		tb.addAction(QIcon.fromTheme(QIcon.ThemeIcon.DocumentSaveAs), 'Save As').triggered.connect(self.savedialog)
+		# tb.addSeparator()
+		# tb.addAction(QIcon.fromTheme(QIcon.ThemeIcon.ListAdd), 'Add Module').triggered.connect(self.add_module)
 		self.top_label = QLabel(alignment=Qt.AlignmentFlag.AlignCenter)
 		self.top_label.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Preferred)
 		tb.addWidget(self.top_label)
 		tb.addAction(QIcon.fromTheme(QIcon.ThemeIcon.GoPrevious), 'Prev preset').triggered.connect(self.prev_pres)
 		tb.addAction(QIcon.fromTheme('application-menu'), 'Setlists').triggered.connect(self.setlist_dialog)
 		tb.addAction(QIcon.fromTheme(QIcon.ThemeIcon.GoNext), 'Next preset').triggered.connect(self.next_pres)
+
+		self.sb = QStatusBar(self)
+		self.setStatusBar(self.sb)
 
 		self.dragmod = -1
 		self.dropins = -1
@@ -356,6 +374,9 @@ class MainWindow(QMainWindow, EvListener):
 		file, filt = QFileDialog.getOpenFileName(self, filter='POD HD Pro X Files (*.pxe *.pxs *.pxb)')
 		if file == '':
 			return
+		self.do_load_file(file)
+
+	def do_load_file(self, file: str):
 		with open(file, 'rb') as f:
 			if file.endswith('.pxe'):
 				self.model.preset = parse_pxe(f)
@@ -394,6 +415,17 @@ class MainWindow(QMainWindow, EvListener):
 				write_pxb(f, ((sl.name, sl.presets) for sl in self.model.bank))
 
 	@Slot(QAction)
+	def add_module(self, act: QAction):
+		mods = self.model.preset.modules
+		try:
+			idx = next(i for i, mod in enumerate(mods[4:], 4) if mod.model is no_mod)
+		except StopIteration:
+			return
+		mods[idx].change_type(0x2000011)
+		self.send_ev(model.ModuleType(idx))
+		self.reload()
+
+	@Slot(QAction)
 	def next_pres(self, act: QAction):
 		self.model.sel_preset = (self.model.sel_preset + 1) % 64
 		self.model.preset = self.model.bank[self.model.sel_list].presets[self.model.sel_preset]
@@ -430,8 +462,8 @@ class MainWindow(QMainWindow, EvListener):
 						mod.refresh_en()
 
 	def create_mod(self, side: int, mod_idx: int, col: int | None = None):
-		if self.model.preset.modules[mod_idx].model is no_mod:
-			return
+		# if self.model.preset.modules[mod_idx].model is no_mod:
+		# 	return
 		if col is None:
 			col = self.gr.columnCount()
 		if mod_idx < 2:
@@ -491,9 +523,12 @@ class MainWindow(QMainWindow, EvListener):
 		line1 = Line1()
 		line2 = Line2()
 		line3 = Line1()
-		self.gr.addWidget(line1, 0, 1, 2, self.lrsplit-1)
-		self.gr.addWidget(line2, 0, self.lrsplit, 2, self.lrjoin-self.lrsplit)
-		self.gr.addWidget(line3, 0, self.lrjoin, 2, self.gr.columnCount() - self.lrjoin)
+		if self.lrsplit > 1:
+			self.gr.addWidget(line1, 0, 1, 2, self.lrsplit-1)
+		if self.lrjoin != self.lrsplit:
+			self.gr.addWidget(line2, 0, self.lrsplit, 2, self.lrjoin-self.lrsplit)
+		if self.lrjoin != self.gr.columnCount():
+			self.gr.addWidget(line3, 0, self.lrjoin, 2, self.gr.columnCount() - self.lrjoin)
 		line1.lower()
 		line2.lower()
 		line3.lower()
@@ -571,7 +606,7 @@ class MainWindow(QMainWindow, EvListener):
 				ins.lane_pos -= 1
 			src.remove(dragmod)
 			dst.insert(ins.lane_pos, dragmod)
-		self.model.preset.recompute_positions()
+		self.model.preset.lane2pos()
 		self.send_ev(model.WholePreset())
 		self.reload()
 		self.update()

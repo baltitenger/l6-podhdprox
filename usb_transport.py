@@ -2,7 +2,7 @@ from __future__ import annotations
 import asyncio
 from typing import cast
 
-from usb1 import TRANSFER_COMPLETED, USBDeviceHandle, USBTransfer # type: ignore
+from usb1 import TRANSFER_COMPLETED, USBDeviceHandle, USBTransfer
 
 from structs import LEStruct
 from util import chunk_bytes, make_callback
@@ -11,6 +11,8 @@ struct = LEStruct
 
 class Transport:
 	def __init__(self, hdl: USBDeviceHandle) -> None:
+		hdl.claimInterface(1)
+
 		self.in_xfer = hdl.getTransfer()
 		self.in_xfer.setBulk(0x81, 0x100, make_callback(self.on_recv))
 
@@ -85,15 +87,15 @@ class Transport:
 		return await fut
 
 	async def send_cmd(self, cmd: int, data: bytes):
-		data = struct.pack('4b', 1, 9, 0, cmd) + data
+		data = struct.pack('4B', 1, 9, 0, cmd) + data
 		assert len(data) % 4 == 0
-		data = struct.pack('2h', len(data)//4, 0x400a) + data
+		data = struct.pack('2H', len(data)//4, 0x400a) + data
 		# make sure we don't intermix different packet chunks
 		async with self.send_lk:
 			first = True
 			for chunk in chunk_bytes(data, 0xfc):
 				x, y = 0, 0 # seemingly ignored
-				hdr = struct.pack('4b', len(chunk), x, 1 if first else 4, y)
+				hdr = struct.pack('4B', len(chunk), x, 1 if first else 4, y)
 				await self.tx0(hdr+chunk)
 				first = False
 

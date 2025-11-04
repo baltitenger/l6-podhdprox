@@ -14,7 +14,7 @@ padlen = 0x10
 def parse_pxe(rd: BufferedReader) -> PresetState:
 	magic, = BEStruct.unpack('4s36x', rd.read(0x28))
 	assert magic == b'H5EP'
-	return PresetState(rd.read(0x1000), BEStruct)
+	return PresetState().load(rd.read(0x1000), BEStruct)
 
 type Setlist = tuple[str, Iterable[PresetState]]
 def parse_pxs(rd: BufferedReader) -> Setlist:

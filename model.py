@@ -104,7 +104,7 @@ class SetlistModel:
 	presets: list[PresetState]
 	def __init__(self, name: str):
 		self.name = name
-		self.presets = []
+		self.presets = [ PresetState() for _ in range(64) ]
 
 class Model:
 	listeners: list[EvListener]
@@ -118,4 +118,5 @@ class Model:
 		self.listeners = []
 		self.sel_list = 0
 		self.sel_preset = 0
-		self.bank = []
+		self.preset = PresetState()
+		self.bank = [ SetlistModel(f'Setlist {i+1}') for i in range(8) ]

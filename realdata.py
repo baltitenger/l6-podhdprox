@@ -166,7 +166,7 @@ class Range:
 
 	def fmt(self, val: float):
 		res = val * (self.hi - self.lo) + self.lo
-		return f'{res:.4}{self.unit}'
+		return f'{res:.4g}{self.unit}'
 
 ranges: dict[int, Range] = {
 	1:  Range(0,    100,  '%'),
