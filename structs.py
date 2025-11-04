@@ -1,4 +1,5 @@
 from __future__ import annotations
+from dataclasses import dataclass, field
 import struct
 from typing import Iterable, Literal, TYPE_CHECKING
 
@@ -24,6 +25,7 @@ class MyPacker:
 LEStruct = MyPacker('<')
 BEStruct = MyPacker('>')
 
+@dataclass(slots=True, init=False)
 class KnobState:
 	param: Param
 	val: int | float
@@ -51,7 +53,9 @@ class KnobState:
 no_mod = Model(0x7fffffff, '[disabled]', 0, {}, [], [])
 
 mod_fmt = 'IIBBBxBxxB'
+@dataclass(slots=True, init=False)
 class ModState:
+	pres: PresetState = field(compare=False, repr=False)
 	model_id: int
 	pos: int
 	en: int
@@ -78,14 +82,14 @@ class ModState:
 
 	def __init__(self, pres: PresetState, idx: int):
 		self.pres = pres
-		self.idx = idx
+		self.en = self.tempo1 = self.tempo2 = self.fs = 0
 		if idx < 4:
 			self.model_id = (0x0007ffff, 0x0007ffff, 0x0107ffff, 0x0107ffff)[idx]
 			self.pos      = (0x05070005, 0x05080000, 0x05070000, 0x05080000)[idx]
 		else:
 			self.model_id = 0x020dffff
 			self.pos      = (0x05000000, 0x05050000)[(idx-4)//4] + idx - 4
-		self.en = self.tempo1 = self.tempo2 = self.fs = 0
+			self.fs       = idx - 4 + 1
 		self.update_model()
 
 	def load(self, buf: bytes, struct: MyPacker):
@@ -116,6 +120,7 @@ class ModState:
 		return data.ljust(0x100, b'\0')
 
 preset_fmt = '16s16xI4x'
+@dataclass(slots=True, init=False)
 class PresetState:
 	name: str
 	modules: list[ModState]
