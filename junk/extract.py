@@ -35,30 +35,30 @@ with open('dropdowns.txt', 'r') as f:
 		dropdowns.append(Dropdown(start, [menu.get(x.encode(), x) for x in opts]))
 
 @dataclass
-class Param:
+class KnobInfo:
 	id: int
 	name: str
 	dropdown_id: int
 	range_id: int
 
 @dataclass
-class Model:
+class ModInfo:
 	id: int
 	name: str
 	img_idx: int
-	params: dict[int, Param]
-	tempo: list[Param]
+	knobs: dict[int, KnobInfo]
+	tempo: list[KnobInfo]
 	defs: list[bytes]
 
 @dataclass
-class AmpModel(Model):
+class AmpModInfo(ModInfo):
 	def_cab: int
 	def_mic: int
 
-models: dict[int, Model] = {}
+models: dict[int, ModInfo] = {}
 
 AMP_EXTRA_START = 6
-amp_extra: list[dict[int, Param]] = []
+amp_extra: list[dict[int, KnobInfo]] = []
 
 amp_spec = {
 	0x7006f: 1,
@@ -82,20 +82,20 @@ with open('/home/baltazar/Downloads/4/POD HD Pro X Edit/POD HD Pro X Edit.exe', 
 	# model extra params
 	f.seek(0x00105844)
 	for _ in range(5):
-		temp: dict[int, Param] = {}
+		temp: dict[int, KnobInfo] = {}
 		for _ in range(5):
 			key, id = struct.unpack('<4si', f.read(8))
 			if key != b'\0\0\0\0':
 				name = prms[key[::-1]]
 				if name == 'BRIGHT':
-					temp[id] = Param(id, name, 15, 0) # on/off
+					temp[id] = KnobInfo(id, name, 15, 0) # on/off
 				else:
-					temp[id] = Param(id, name, 0, 1)
+					temp[id] = KnobInfo(id, name, 0, 1)
 		amp_extra.append(temp)
 	# manual addition
 	amp_extra.append({
-		0x3f100008: Param(0x3f100008, 'SAG', 0, 1),
-		0x3f100007: Param(0x3f100007, 'HUM', 0, 1),
+		0x3f100008: KnobInfo(0x3f100008, 'SAG', 0, 1),
+		0x3f100007: KnobInfo(0x3f100007, 'HUM', 0, 1),
 	})
 	amp_extra.append({})
 	pp(amp_extra)
@@ -112,7 +112,7 @@ with open('/home/baltazar/Downloads/4/POD HD Pro X Edit/POD HD Pro X Edit.exe', 
 		name = mdls.get(str_id)
 		if name is None:
 			break
-		models[id] = Model(id, name, -1, {}, [], [])
+		models[id] = ModInfo(id, name, -1, {}, [], [])
 	# amps, cabs & mics
 	f.seek(0x0011a190)
 	for _ in range(132):
@@ -131,15 +131,15 @@ with open('/home/baltazar/Downloads/4/POD HD Pro X Edit/POD HD Pro X Edit.exe', 
 		print(f'{id1:08x}: {name:22} {img_idx} {idk6} cab:{def_cab:8x} mic:{def_mic:x} {types} {has_extra}')
 		if id1 & 0xffff0000 == 0x00070000:
 			assert idks1 == bytes.fromhex('0000003f0000003f0000003f0000003f0000003f0000003fcdcccc3d')
-			params = { id: Param(id, prms[types[j]], 0, 1) for id,j in zip(range(0x3f100000, 0x3f100006), [1, 2, 3, 0, 4, 5]) }
+			params = { id: KnobInfo(id, prms[types[j]], 0, 1) for id,j in zip(range(0x3f100000, 0x3f100006), [1, 2, 3, 0, 4, 5]) }
 			extra = amp_extra[amp_spec.get(id1, 0 if has_extra else -1)]
-			models[id1] = AmpModel(id1, name, img_idx, params | extra, [], [], def_cab, def_mic)
+			models[id1] = AmpModInfo(id1, name, img_idx, params | extra, [], [], def_cab, def_mic)
 		else:
 			assert idks1 in (
 					bytes.fromhex('0000003f0000003f0000003f0000003f000000000000000000000000'),
 					bytes.fromhex('00000000000000000000000000000000000000000000000000000000'),
 					)
-			models[id1] = Model(id1, name, img_idx, {}, [], [])
+			models[id1] = ModInfo(id1, name, img_idx, {}, [], [])
 
 	# also seems to have 2 full presets, both called New Tone
 
@@ -194,7 +194,7 @@ with open('dump', 'rb') as f:
 			# 8,9,10: text input box x,y,visible
 			# 11,12,13,14,15: label x,y,w,h,text
 			# 16,17,18: bracket x,y,?
-			model.params[idk[0]] = Param(idk[0], prms[pkey], 0, idk[4])
+			model.knobs[idk[0]] = KnobInfo(idk[0], prms[pkey], 0, idk[4])
 			print('- {0:08x} {1} {4:2} {20}'.format(*idk, pkey, prms[pkey]))
 		for i in range(5):
 			# dropdowns
@@ -207,14 +207,14 @@ with open('dump', 'rb') as f:
 			# 5: dropdown nr
 			# 6,7,8: dropdown x,y,?
 			# 9,10,11,12,13: label x,y,w,h,text
-			p = Param(idk[0], prms[pkey], idk[4], 0)
+			p = KnobInfo(idk[0], prms[pkey], idk[4], 0)
 			if idk[0] & 0xffff0000 == 0x3f200000:
 				model.tempo.append(p)
 			else:
-				model.params[idk[0]] = p
+				model.knobs[idk[0]] = p
 			print('- {0:08x} {1:x} {2} {3} {4} {5:2} {14}'.format(*idk, pkey, prms[pkey]))
 			# print('-', buf.hex(), prms[pkey])
-		print('xxx', len(model.params), y, z, w, model.name)
+		print('xxx', len(model.knobs), y, z, w, model.name)
 		# print(head.hex(), t1, t2, t1+t2)
 
 # cab params:
@@ -258,28 +258,28 @@ class Dropdown:
 	opts: list[str]
 
 @dataclass
-class Param:
+class KnobInfo:
 	id: int
 	name: str
 	dropdown_id: int
 	range_id: int
 
 @dataclass
-class Model:
+class ModInfo:
 	id: int
 	name: str
 	img_idx: int
-	params: dict[int, Param]
-	tempo: list[Param]
+	knobs: dict[int, KnobInfo]
+	tempo: list[KnobInfo]
 	defs: list[bytes]
 
 @dataclass
-class AmpModel(Model):
+class AmpModInfo(ModInfo):
 	def_cab: int
 	def_mic: int
 
 '''.lstrip())
 	f.write('dropdowns: list[Dropdown] = ')
 	pp(dropdowns, f)
-	f.write('models: dict[int, Model] = ')
+	f.write('models: dict[int, ModInfo] = ')
 	pp(models, f, width=100)

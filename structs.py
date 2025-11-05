@@ -3,7 +3,7 @@ from dataclasses import dataclass, field
 import struct
 from typing import Iterable, Literal, TYPE_CHECKING
 
-from realdata import AmpModel, Model, Param, models, params
+from realdata import AmpModInfo, ModInfo, KnobInfo, models, params
 from util import chunk_bytes
 
 if TYPE_CHECKING:
@@ -27,30 +27,30 @@ BEStruct = MyPacker('>')
 
 @dataclass(slots=True, init=False)
 class KnobState:
-	param: Param
+	info: KnobInfo
 	val: int | float
 	min: int | float
 	max: int | float
 	ctrl: int
 
-	def __init__(self, model: Model, pbuf: bytes | int, struct: MyPacker):
+	def __init__(self, model: ModInfo, pbuf: bytes | int, struct: MyPacker):
 		if isinstance(pbuf, int):
-			self.param = model.params[pbuf]
+			self.info = model.knobs[pbuf]
 			self.val = self.min = self.max = self.ctrl = 0
 			return
 		id, = struct.unpack('i', pbuf[:4])
-		self.param = model.params[id]
-		if self.param.id & 0xff0000:
+		self.info = model.knobs[id]
+		if self.info.id & 0xff0000:
 			self.val, self.min, self.max = struct.unpack('3f', pbuf[4:-4])
 		else:
 			self.val, self.min, self.max = struct.unpack('3i', pbuf[4:-4])
 		self.ctrl = pbuf[-4]
 
 	def dump(self, struct: MyPacker) -> bytes:
-		fmt = 'ifffb3x' if self.param.id & 0xff0000 else 'iiiib3x'
-		return struct.pack(fmt, self.param.id, self.val, self.min, self.max, self.ctrl)
+		fmt = 'ifffb3x' if self.info.id & 0xff0000 else 'iiiib3x'
+		return struct.pack(fmt, self.info.id, self.val, self.min, self.max, self.ctrl)
 
-no_mod = Model(0x7fffffff, '[disabled]', 0, {}, [], [])
+no_mod = ModInfo(0x7fffffff, '[disabled]', 0, {}, [], [])
 
 mod_fmt = 'IIBBBxBxxB'
 @dataclass(slots=True, init=False)
@@ -62,23 +62,23 @@ class ModState:
 	tempo1: int
 	tempo2: int
 	fs: int
-	model: Model
+	info: ModInfo
 	knobs: dict[int, KnobState]
 
 	def load_knobs(self, bufs: Iterable[bytes], struct: MyPacker):
 		for pbuf in bufs:
-			p = KnobState(self.model, pbuf, struct)
-			self.knobs[p.param.id] = p
-		for id in self.model.params:
+			p = KnobState(self.info, pbuf, struct)
+			self.knobs[p.info.id] = p
+		for id in self.info.knobs:
 			if id not in self.knobs:
-				self.knobs[id] = KnobState(self.model, id, struct)
+				self.knobs[id] = KnobState(self.info, id, struct)
 
 	def update_model(self):
 		self.knobs = {}
 		if self.model_id & 0xffff == 0xffff:
-			self.model = no_mod
+			self.info = no_mod
 			return
-		self.model = models[self.model_id]
+		self.info = models[self.model_id]
 
 	def __init__(self, pres: PresetState, idx: int):
 		self.pres = pres
@@ -96,20 +96,20 @@ class ModState:
 		assert len(buf) == 0x100
 		self.model_id, self.pos, self.en, self.tempo1, self.tempo2, self.fs, n_knobs = struct.unpack(mod_fmt, buf[:0x10])
 		self.update_model()
-		if self.model is not no_mod:
-			assert len(self.model.params) >= n_knobs, (self.model, len(self.model.params), n_knobs, buf.hex())
+		if self.info is not no_mod:
+			assert len(self.info.knobs) >= n_knobs, (self.info, len(self.info.knobs), n_knobs, buf.hex())
 			self.load_knobs(chunk_bytes(buf, 20, 0x10, n_knobs), struct)
 		return self
 
 	def change_type(self, model_id: int):
 		self.model_id = model_id
 		self.update_model()
-		if self.model is not no_mod:
-			self.load_knobs(self.model.defs, LEStruct)
-			if isinstance(self.model, AmpModel):
+		if self.info is not no_mod:
+			self.load_knobs(self.info.defs, LEStruct)
+			if isinstance(self.info, AmpModInfo):
 				idx = self.pres.modules.index(self)
-				self.pres.modules[idx+2].change_type(self.model.def_cab)
-				self.pres.int_params[0x34+idx] = self.model.def_mic
+				self.pres.modules[idx+2].change_type(self.info.def_cab)
+				self.pres.int_params[0x34+idx] = self.info.def_mic
 
 	def lane(self):
 		return (self.pos >> 16) & 0xff

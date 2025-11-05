@@ -39,14 +39,14 @@ from PySide6.QtWidgets import (
 from model import EvListener, Event, SetlistModel
 import model
 from pxio import parse_pxb, parse_pxe, parse_pxs, write_pxb, write_pxe, write_pxs
-from realdata import Model, categories, dropdowns, models, ranges
+from realdata import ModInfo, categories, dropdowns, models, ranges
 from structs import KnobState, ModState, no_mod
 import app_rc
 
-no_amp = Model(no_mod.id, '[amp disabled]', 0, {}, [], [])
+no_amp = ModInfo(no_mod.id, '[amp disabled]', 0, {}, [], [])
 amps = [no_amp] + [ mod for mod in models.values() if mod.id >> 16 == 0x0007 ]
 amp_index = { mod.id: i for i, mod in enumerate(amps) }
-no_cab = Model(no_mod.id, '[no cab]', 0, {}, [], [])
+no_cab = ModInfo(no_mod.id, '[no cab]', 0, {}, [], [])
 cabs = [no_cab] + [ mod for mod in models.values() if mod.id >> 16 == 0x0107 ]
 cab_index = { mod.id: i for i, mod in enumerate(cabs) }
 mics = [ mod for mod in models.values() if mod.id >> 16 == 0x0000 ]
@@ -74,7 +74,7 @@ class KnobView(QVBoxLayout):
 	def refresh_val(self): ...
 
 	def send_ev(self, T: type[model.KnobEvent]):
-		self.mw.send_ev(T(self.mod_idx, self.knob.param.id))
+		self.mw.send_ev(T(self.mod_idx, self.knob.info.id))
 
 class DialKnobView(KnobView):
 	def __init__(self, mw: MainWindow, mod_idx: int, knob: KnobState):
@@ -86,10 +86,10 @@ class DialKnobView(KnobView):
 		self.dial.actionTriggered.connect(self.valChanged)
 
 		self.addWidget(self.dial, stretch=1)
-		self.label = QLabel(knob.param.name, alignment=Qt.AlignmentFlag.AlignCenter)
+		self.label = QLabel(knob.info.name, alignment=Qt.AlignmentFlag.AlignCenter)
 		self.addWidget(self.label)
 
-		self.range = ranges[self.knob.param.range_id]
+		self.range = ranges[self.knob.info.range_id]
 
 	def refresh_val(self):
 		with no_signals(self.dial):
@@ -99,7 +99,7 @@ class DialKnobView(KnobView):
 	def valChanged(self, val: int):
 		self.knob.val = self.dial.value()/100
 		self.send_ev(model.KnobValue)
-		self.mw.sb.showMessage(f'{self.knob.param.name}: {self.range.fmt(self.knob.val)}', 2000)
+		self.mw.sb.showMessage(f'{self.knob.info.name}: {self.range.fmt(self.knob.val)}', 2000)
 
 class DropdownKnobView(KnobView):
 	def __init__(self, mw: MainWindow, mod_idx: int, knob: KnobState):
@@ -107,13 +107,13 @@ class DropdownKnobView(KnobView):
 
 		self.cbox = QComboBox()
 		self.cbox.setMaximumWidth(120)
-		self.dd = dropdowns[knob.param.dropdown_id]
+		self.dd = dropdowns[knob.info.dropdown_id]
 		self.cbox.addItems(self.dd.opts)
 		self.refresh_val()
 		self.cbox.currentIndexChanged.connect(self.idxChanged)
 
 		self.addWidget(self.cbox, stretch=1, alignment=Qt.AlignmentFlag.AlignCenter)
-		self.label = QLabel(knob.param.name, alignment=Qt.AlignmentFlag.AlignCenter)
+		self.label = QLabel(knob.info.name, alignment=Qt.AlignmentFlag.AlignCenter)
 		self.addWidget(self.label)
 
 	def refresh_val(self):
@@ -138,9 +138,9 @@ RIGHT = 1
 MID = 2
 
 def load_img(mod: ModState):
-	if mod.model.img_idx == 0:
+	if mod.info.img_idx == 0:
 		return QPixmap()
-	return QPixmap(f':/img/{mod.model.img_idx:03}.png') \
+	return QPixmap(f':/img/{mod.info.img_idx:03}.png') \
 		.scaled(QSize(120, 120), Qt.AspectRatioMode.KeepAspectRatio)
 
 class ModMenu(QPushButton):
@@ -187,12 +187,12 @@ class ModViewBase(QObject):
 			knob.deleteLater()
 		self.knobs.clear()
 		for row, knob in enumerate(self.mod.knobs.values()):
-			if knob.param.dropdown_id:
+			if knob.info.dropdown_id:
 				p = DropdownKnobView(self.mw, self.mod_idx, knob)
 			else:
 				p = DialKnobView(self.mw, self.mod_idx, knob)
 			self.mw.gr.addLayout(p, row % maxrows + 4, self.col + row // maxrows)
-			self.knobs[knob.param.id] = p
+			self.knobs[knob.info.id] = p
 
 	def refresh_en(self):
 		with no_signals(self.en):
@@ -222,14 +222,14 @@ class ModView(ModViewBase):
 	def refresh_type(self):
 		self.img.setPixmap(load_img(self.mod))
 		with no_signals(self.mod_menu):
-			self.mod_menu.setText(self.mod.model.name)
+			self.mod_menu.setText(self.mod.info.name)
 		self.refresh_knobs()
 
 	@Slot(QAction)
 	def type_changed(self, act: QAction):
 		self.mod.change_type(act.data())
 		self.mw.send_ev(model.ModuleType(self.mod_idx))
-		if self.mod.model is no_mod:
+		if self.mod.info is no_mod:
 			self.mw.reload()
 		else:
 			self.refresh_type()
@@ -274,8 +274,8 @@ class AmpModView(ModViewBase):
 
 	def refresh_cab(self):
 		with no_signals(self.cabbox):
-			self.cabbox.setCurrentIndex(cab_index[self.cab.model.id])
-		if self.mod.model.img_idx == self.cab.model.img_idx:
+			self.cabbox.setCurrentIndex(cab_index[self.cab.info.id])
+		if self.mod.info.img_idx == self.cab.info.img_idx:
 			self.cab_img.hide()
 			self.mw.gr.addWidget(self.amp_img, self.side % 2, self.col, 1 + self.side//2, 2)
 		else:
@@ -286,9 +286,9 @@ class AmpModView(ModViewBase):
 
 	def refresh_type(self):
 		with no_signals(self.ampbox):
-			self.ampbox.setCurrentIndex(amp_index[self.mod.model.id])
+			self.ampbox.setCurrentIndex(amp_index[self.mod.info.id])
 		self.amp_img.setPixmap(load_img(self.mod))
-		if self.mod.model is no_mod:
+		if self.mod.info is no_mod:
 			self.cab_img.hide()
 			self.cabbox.hide()
 			self.micbox.hide()
@@ -468,7 +468,7 @@ class MainWindow(QMainWindow, EvListener):
 	def add_module(self, act: QAction):
 		mods = self.model.preset.modules
 		try:
-			idx = next(i for i, mod in enumerate(mods[4:], 4) if mod.model is no_mod)
+			idx = next(i for i, mod in enumerate(mods[4:], 4) if mod.info is no_mod)
 		except StopIteration:
 			return
 		mods[idx].change_type(0x2000011)

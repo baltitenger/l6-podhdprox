@@ -76,7 +76,7 @@ class UsbAdapter(Transport, model.EvListener):
 			assert fmt in (0, 1)
 			arg, = struct.unpack('if'[fmt], data[-4:])
 			mod = self.model.preset.modules[mod_idx]
-			if mod.model is no_mod:
+			if mod.info is no_mod:
 				return
 			knob = mod.knobs[knob_id]
 			match evt:

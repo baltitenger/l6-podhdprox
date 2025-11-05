@@ -1,6 +1,6 @@
 from dataclasses import dataclass
 
-from data import AmpModel, Model, Param, dropdowns, models
+from data import AmpModInfo, ModInfo, KnobInfo, dropdowns, models
 
 params = {
 	0x00: (0, 3368, 'variax ??'),
