@@ -128,14 +128,20 @@ class LaneMap:
 	'''Value of amp_pos if amp is in this lane'''
 	end: int
 	'''Which end of the lane has the amp'''
+	side: int
+	'''Which side the lane is on'''
+
+LEFT = 0
+RIGHT = 1
+MID = 2
 
 lane_map = [
-	LaneMap(0, 5, 1),
-	LaneMap(0, 0, 1),
-	LaneMap(1, 0, 1),
-	LaneMap(0, 0, 0),
-	LaneMap(1, 0, 0),
-	LaneMap(0, 7, 0),
+	LaneMap(0, 5, 1, MID),
+	LaneMap(0, 0, 1, LEFT),
+	LaneMap(1, 0, 1, RIGHT),
+	LaneMap(0, 0, 0, LEFT),
+	LaneMap(1, 0, 0, RIGHT),
+	LaneMap(0, 7, 0, MID),
 ]
 
 preset_fmt = '16s16xI4x'
@@ -151,6 +157,7 @@ class PresetState:
 		self.name = 'New Tone'
 		self.modules = [ ModState(self, i) for i in range(12) ]
 		self.pos2lane()
+		# todo actual defaults
 		self.flt_params = { k: 0.0 for k, (fmt, _, _) in params.items() if fmt == 1 }
 		self.int_params = { k: 0   for k, (fmt, _, _) in params.items() if fmt == 0 }
 
@@ -199,12 +206,18 @@ class PresetState:
 	def swap_amps(self):
 		pass # TODO
 
+	def amp_pos(self):
+		return self.modules[0].pos & 0xff
+
+	def set_amp_pos(self, pos: int):
+		self.modules[0].pos = 0x05070000 | pos
+
 	def move_mod(self, src_idx: int, dst_lane: int, dst_lane_pos: int):
 		if src_idx < 2: # amp
 			lm = lane_map[dst_lane]
 			if lm.amp != src_idx:
 				self.swap_amps()
-			self.modules[0].pos = 0x0507 << 16 | lm.pos
+			self.set_amp_pos(lm.pos)
 			if dst_lane not in (0, 5):
 				if dst_lane in (1, 3):
 					a, b = 1, 3
@@ -216,6 +229,8 @@ class PresetState:
 					pt += len(self.lanes[a])
 				self.lanes[a] = merged[:pt]
 				self.lanes[b] = merged[pt:]
+		elif src_idx < 4:
+			assert False, "Can't move a cab"
 		else:
 			src = self.lanes[self.modules[src_idx].lane()]
 			dst = self.lanes[dst_lane]

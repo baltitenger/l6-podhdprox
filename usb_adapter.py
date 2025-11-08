@@ -20,6 +20,7 @@ cmd2evt: dict[int, type[model.Event]] = {
 
 evt2cmd = { v: k for k, v in cmd2evt.items() }
 
+# TODO error handling (malformed msg, disconnect, etc)
 class UsbAdapter(Transport, model.EvListener):
 	def __init__(self, hdl: USBDeviceHandle, model: model.Model) -> None:
 		super().__init__(hdl)

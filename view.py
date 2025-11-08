@@ -137,10 +137,6 @@ class DropdownKnobView(KnobView):
 		self.knob.val = val
 		self.send_ev(model.KnobValue)
 
-LEFT = 0
-RIGHT = 1
-MID = 2
-
 def load_img(mod: ModState):
 	if mod.info.img_idx == 0:
 		return QPixmap()
@@ -439,6 +435,7 @@ class MainWindow(QMainWindow, EvListener):
 		self.do_load_file(file)
 
 	def do_load_file(self, file: str):
+		# TODO error handling
 		with open(file, 'rb') as f:
 			if file.endswith('.pxe'):
 				self.model.preset = parse_pxe(f)
@@ -561,12 +558,17 @@ class MainWindow(QMainWindow, EvListener):
 				return
 		self.ins_points.append(InsPoint(lane, lane_pos, side, col))
 
-	def pr_lane(self, side: int, lane: int):
+	def pr_lane(self, lane: int):
+		lm = lane_map[lane]
 		lanes = self.model.preset.lanes
+		if lm.pos == self.amp_pos and lm.end == 0 and lm.amp not in self.mods:
+			self.create_mod(lm.side, lm.amp)
 		for i, m in enumerate(lanes[lane]):
-			self.add_ins_point(lane, i, side)
-			self.create_mod(side, m)
-		self.add_ins_point(lane, len(lanes[lane]), side)
+			self.add_ins_point(lane, i, lm.side)
+			self.create_mod(lm.side, m)
+		self.add_ins_point(lane, len(lanes[lane]), lm.side)
+		if lm.pos == self.amp_pos and lm.end == 1 and lm.amp not in self.mods:
+			self.create_mod(lm.side, lm.amp)
 
 	def reload(self):
 		sp = self.model.sel_preset
@@ -579,26 +581,17 @@ class MainWindow(QMainWindow, EvListener):
 		self.gr = QGridLayout(widget)
 		self.gr.setRowMinimumHeight(0, 120)
 		self.gr.setRowMinimumHeight(1, 120)
-		mods = self.model.preset.modules
-		self.amp_pos = amp_pos = mods[0].pos & 0xff
-		self.pr_lane(MID, 0)
-		if amp_pos == 5:
-			self.create_mod(MID, 0)
+		self.amp_pos = self.model.preset.amp_pos()
+		self.pr_lane(0)
 		self.lrsplit = self.gr.columnCount()
-		self.pr_lane(LEFT, 1)
-		if amp_pos == 0:
-			self.create_mod(LEFT, 0)
-		self.pr_lane(LEFT, 3)
+		self.pr_lane(1)
+		self.pr_lane(3)
 		self.lrswitch = self.gr.columnCount()
-		self.pr_lane(RIGHT, 2)
-		if amp_pos == 0:
-			self.create_mod(RIGHT, 1)
-		self.pr_lane(RIGHT, 4)
+		self.pr_lane(2)
+		self.pr_lane(4)
 		# print(  '  mix  ')
 		self.lrjoin = self.gr.columnCount()
-		if amp_pos == 7:
-			self.create_mod(MID, 0)
-		self.pr_lane(MID, 5)
+		self.pr_lane(5)
 
 		line1 = Line1()
 		line2 = Line2()
