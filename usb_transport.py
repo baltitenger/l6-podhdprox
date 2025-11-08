@@ -65,7 +65,7 @@ class Transport:
 				data = pkt[4:]
 				assert x == 0x40 and y == 0x00, 'weird header3'
 			except AssertionError as e:
-				print(e)
+				print('Ignoring malformed usb message:', e)
 				continue
 			await self.on_pkt(is_resp, typ, data)
 

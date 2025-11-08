@@ -1,8 +1,8 @@
 from usb1 import USBDeviceHandle
 
+from data import params, semitones
 import model
-from realdata import semitones
-from structs import no_mod, params
+from structs import no_mod
 from usb_transport import Transport, struct
 
 cmd2evt: dict[int, type[model.Event]] = {

@@ -1,11 +1,16 @@
 #!/usr/bin/env python3
 
-from dataclasses import dataclass
 from pprint import pp
 import struct
 import xml.sax
 
+from data import AmpModInfo, Dropdown, KnobInfo, ModInfo
+
 src = '/home/baltazar/Downloads/4/POD HD Pro X Edit'
+
+class HexInt(int):
+	def __repr__(self) -> str:
+		return hex(self)
 
 strings: dict[bytes, dict[bytes, str]] = {}
 class reader(xml.sax.ContentHandler):
@@ -22,10 +27,6 @@ mdls = strings[b'MDLS']
 prms = strings[b'PRMS']
 menu = strings[b'MENU']
 
-@dataclass
-class Dropdown:
-	offset: int
-	opts: list[str]
 dropdowns: list[Dropdown] = [Dropdown(0, [])]
 # from sub at 0x41d7a0
 with open('dropdowns.txt', 'r') as f:
@@ -33,27 +34,6 @@ with open('dropdowns.txt', 'r') as f:
 		start, *opts = line.strip().split('|')
 		start = int(start)
 		dropdowns.append(Dropdown(start, [menu.get(x.encode(), x) for x in opts]))
-
-@dataclass
-class KnobInfo:
-	id: int
-	name: str
-	dropdown_id: int
-	range_id: int
-
-@dataclass
-class ModInfo:
-	id: int
-	name: str
-	img_idx: int
-	knobs: dict[int, KnobInfo]
-	tempo: list[KnobInfo]
-	defs: list[bytes]
-
-@dataclass
-class AmpModInfo(ModInfo):
-	def_cab: int
-	def_mic: int
 
 models: dict[int, ModInfo] = {}
 
@@ -85,6 +65,7 @@ with open('/home/baltazar/Downloads/4/POD HD Pro X Edit/POD HD Pro X Edit.exe', 
 		temp: dict[int, KnobInfo] = {}
 		for _ in range(5):
 			key, id = struct.unpack('<4si', f.read(8))
+			id = HexInt(id)
 			if key != b'\0\0\0\0':
 				name = prms[key[::-1]]
 				if name == 'BRIGHT':
@@ -94,8 +75,8 @@ with open('/home/baltazar/Downloads/4/POD HD Pro X Edit/POD HD Pro X Edit.exe', 
 		amp_extra.append(temp)
 	# manual addition
 	amp_extra.append({
-		0x3f100008: KnobInfo(0x3f100008, 'SAG', 0, 1),
-		0x3f100007: KnobInfo(0x3f100007, 'HUM', 0, 1),
+		HexInt(0x3f100008): KnobInfo(HexInt(0x3f100008), 'SAG', 0, 1),
+		HexInt(0x3f100007): KnobInfo(HexInt(0x3f100007), 'HUM', 0, 1),
 	})
 	amp_extra.append({})
 	pp(amp_extra)
@@ -106,6 +87,7 @@ with open('/home/baltazar/Downloads/4/POD HD Pro X Edit/POD HD Pro X Edit.exe', 
 	f.seek(0x00119a08)
 	while True:
 		str_id, id = struct.unpack('4si', f.read(8))
+		id = HexInt(id)
 		str_id: bytes = str_id[::-1]
 		if str_id == b'\0\0\0\0':
 			continue
@@ -131,15 +113,15 @@ with open('/home/baltazar/Downloads/4/POD HD Pro X Edit/POD HD Pro X Edit.exe', 
 		print(f'{id1:08x}: {name:22} {img_idx} {idk6} cab:{def_cab:8x} mic:{def_mic:x} {types} {has_extra}')
 		if id1 & 0xffff0000 == 0x00070000:
 			assert idks1 == bytes.fromhex('0000003f0000003f0000003f0000003f0000003f0000003fcdcccc3d')
-			params = { id: KnobInfo(id, prms[types[j]], 0, 1) for id,j in zip(range(0x3f100000, 0x3f100006), [1, 2, 3, 0, 4, 5]) }
+			params = { HexInt(id): KnobInfo(HexInt(id), prms[types[j]], 0, 1) for id,j in zip(range(0x3f100000, 0x3f100006), [1, 2, 3, 0, 4, 5]) }
 			extra = amp_extra[amp_spec.get(id1, 0 if has_extra else -1)]
-			models[id1] = AmpModInfo(id1, name, img_idx, params | extra, [], [], def_cab, def_mic)
+			models[HexInt(id1)] = AmpModInfo(HexInt(id1), name, img_idx, params | extra, [], [], def_cab, def_mic)
 		else:
 			assert idks1 in (
 					bytes.fromhex('0000003f0000003f0000003f0000003f000000000000000000000000'),
 					bytes.fromhex('00000000000000000000000000000000000000000000000000000000'),
 					)
-			models[id1] = ModInfo(id1, name, img_idx, {}, [], [])
+			models[HexInt(id1)] = ModInfo(HexInt(id1), name, img_idx, {}, [], [])
 
 	# also seems to have 2 full presets, both called New Tone
 
@@ -194,7 +176,7 @@ with open('dump', 'rb') as f:
 			# 8,9,10: text input box x,y,visible
 			# 11,12,13,14,15: label x,y,w,h,text
 			# 16,17,18: bracket x,y,?
-			model.knobs[idk[0]] = KnobInfo(idk[0], prms[pkey], 0, idk[4])
+			model.knobs[HexInt(idk[0])] = KnobInfo(HexInt(idk[0]), prms[pkey], 0, idk[4])
 			print('- {0:08x} {1} {4:2} {20}'.format(*idk, pkey, prms[pkey]))
 		for i in range(5):
 			# dropdowns
@@ -207,11 +189,11 @@ with open('dump', 'rb') as f:
 			# 5: dropdown nr
 			# 6,7,8: dropdown x,y,?
 			# 9,10,11,12,13: label x,y,w,h,text
-			p = KnobInfo(idk[0], prms[pkey], idk[4], 0)
+			p = KnobInfo(HexInt(idk[0]), prms[pkey], idk[4], 0)
 			if idk[0] & 0xffff0000 == 0x3f200000:
 				model.tempo.append(p)
 			else:
-				model.knobs[idk[0]] = p
+				model.knobs[HexInt(idk[0])] = p
 			print('- {0:08x} {1:x} {2} {3} {4} {5:2} {14}'.format(*idk, pkey, prms[pkey]))
 			# print('-', buf.hex(), prms[pkey])
 		print('xxx', len(model.knobs), y, z, w, model.name)
@@ -248,38 +230,10 @@ with open('app.qrc', 'w') as f:
 		f.write(f'<file>img/{i:03}.png</file>\n')
 	f.write('</qresource></RCC>\n')
 
-with open('data.py', 'w') as f:
-	f.write('''
-from dataclasses import dataclass, field
-
-@dataclass
-class Dropdown:
-	offset: int
-	opts: list[str]
-
-@dataclass
-class KnobInfo:
-	id: int
-	name: str
-	dropdown_id: int
-	range_id: int
-
-@dataclass
-class ModInfo:
-	id: int
-	name: str
-	img_idx: int
-	knobs: dict[int, KnobInfo]
-	tempo: list[KnobInfo]
-	defs: list[bytes]
-
-@dataclass
-class AmpModInfo(ModInfo):
-	def_cab: int
-	def_mic: int
-
-'''.lstrip())
-	f.write('dropdowns: list[Dropdown] = ')
+with open('data_gen.py', 'w') as f:
+	f.write('from data import AmpModInfo, Dropdown, KnobInfo, ModInfo\n')
+	f.write('\ndropdowns: list[Dropdown] = ')
 	pp(dropdowns, f)
-	f.write('models: dict[int, ModInfo] = ')
+	f.write('\nmodels: dict[int, ModInfo] = ')
 	pp(models, f, width=100)
+	f.write('\ntempo_sync = dropdowns[4]\n')

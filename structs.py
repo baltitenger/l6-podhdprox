@@ -3,7 +3,8 @@ from dataclasses import dataclass, field
 import struct
 from typing import Iterable, Literal, TYPE_CHECKING
 
-from realdata import AmpModInfo, ModInfo, KnobInfo, models, params
+from data import AmpModInfo, KnobInfo, ModInfo, params
+from data_gen import models
 from util import chunk_bytes
 
 if TYPE_CHECKING:
@@ -132,8 +133,8 @@ class PresetState:
 		self.name = 'New Tone'
 		self.modules = [ ModState(self, i) for i in range(12) ]
 		self.pos2lane()
-		self.flt_params = {}
-		self.int_params = {}
+		self.flt_params = { k: 0.0 for k, (fmt, _, _) in params.items() if fmt == 1 }
+		self.int_params = { k: 0   for k, (fmt, _, _) in params.items() if fmt == 0 }
 
 	def load(self, data: bytes, struct: MyPacker):
 		assert len(data) == 0x1000

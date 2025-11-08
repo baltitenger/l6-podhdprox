@@ -5,18 +5,25 @@ from dataclasses import dataclass
 from itertools import pairwise
 
 from PySide6.QtCore import (
-	QAbstractItemModel,
 	QItemSelectionModel,
 	QModelIndex,
 	QObject,
-	QPersistentModelIndex,
 	QPoint,
-	QResource,
 	QSize,
 	Qt,
 	Slot,
 )
-from PySide6.QtGui import QAction, QIcon, QMouseEvent, QPainter, QPen, QPixmap, QStandardItem, QStandardItemModel
+from PySide6.QtGui import (
+	QAction,
+	QIcon,
+	QKeySequence,
+	QMouseEvent,
+	QPainter,
+	QPen,
+	QPixmap,
+	QStandardItem,
+	QStandardItemModel,
+)
 from PySide6.QtWidgets import (
 	QApplication,
 	QCheckBox,
@@ -36,12 +43,13 @@ from PySide6.QtWidgets import (
 	QWidget,
 )
 
+import app_rc
+from data import ModInfo, categories, ranges
+from data_gen import dropdowns, models
 from model import EvListener, Event, SetlistModel
 import model
 from pxio import parse_pxb, parse_pxe, parse_pxs, write_pxb, write_pxe, write_pxs
-from realdata import ModInfo, categories, dropdowns, models, ranges
-from structs import KnobState, ModState, no_mod
-import app_rc
+from structs import KnobState, ModState, lane_map, no_mod
 
 no_amp = ModInfo(no_mod.id, '[amp disabled]', 0, {}, [], [])
 amps = [no_amp] + [ mod for mod in models.values() if mod.id >> 16 == 0x0007 ]
@@ -244,7 +252,7 @@ class AmpModView(ModViewBase):
 
 		self.ampbox = QComboBox()
 		self.ampbox.setStyleSheet("QComboBox { padding-top: 1px; padding-bottom: 1px; }");
-		self.ampbox.addItems([amp.name for amp in amps]) # TODO Amp disabled
+		self.ampbox.addItems([amp.name for amp in amps])
 		self.ampbox.currentIndexChanged.connect(self.amp_changed)
 		self.ampbox.setToolTip('Amp')
 		mw.gr.addWidget(self.ampbox, 2, col)
