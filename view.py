@@ -408,16 +408,24 @@ class MainWindow(QMainWindow, EvListener):
 
 		tb = self.addToolBar('Main Toolbar')
 		tb.setMovable(False)
-		tb.addAction(QIcon.fromTheme(QIcon.ThemeIcon.DocumentOpen), 'Open').triggered.connect(self.opendialog)
-		tb.addAction(QIcon.fromTheme(QIcon.ThemeIcon.DocumentSaveAs), 'Save As').triggered.connect(self.savedialog)
+		openAct = tb.addAction(QIcon.fromTheme(QIcon.ThemeIcon.DocumentOpen), 'Open')
+		openAct.triggered.connect(self.opendialog)
+		openAct.setShortcut(QKeySequence.StandardKey.Open)
+		saveAct = tb.addAction(QIcon.fromTheme(QIcon.ThemeIcon.DocumentSaveAs), 'Save As')
+		saveAct.triggered.connect(self.savedialog)
+		saveAct.setShortcut(QKeySequence.StandardKey.Save)
 		# tb.addSeparator()
 		# tb.addAction(QIcon.fromTheme(QIcon.ThemeIcon.ListAdd), 'Add Module').triggered.connect(self.add_module)
 		self.top_label = QLabel(alignment=Qt.AlignmentFlag.AlignCenter)
 		self.top_label.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Preferred)
 		tb.addWidget(self.top_label)
-		tb.addAction(QIcon.fromTheme(QIcon.ThemeIcon.GoPrevious), 'Prev preset').triggered.connect(self.prev_pres)
+		prevAct = tb.addAction(QIcon.fromTheme(QIcon.ThemeIcon.GoPrevious), 'Prev preset')
+		prevAct.triggered.connect(self.prev_pres)
+		prevAct.setShortcut(Qt.Key.Key_PageDown)
 		tb.addAction(QIcon.fromTheme('application-menu'), 'Setlists').triggered.connect(self.show_setlist_dialog)
-		tb.addAction(QIcon.fromTheme(QIcon.ThemeIcon.GoNext), 'Next preset').triggered.connect(self.next_pres)
+		nextAct = tb.addAction(QIcon.fromTheme(QIcon.ThemeIcon.GoNext), 'Next preset')
+		nextAct.triggered.connect(self.next_pres)
+		nextAct.setShortcut(Qt.Key.Key_PageUp)
 
 		self.setlist_dialog: SetlistDialog | None = None
 
@@ -451,6 +459,8 @@ class MainWindow(QMainWindow, EvListener):
 			else:
 				print('unexpected file extension, ignoring')
 		self.reload()
+		if self.setlist_dialog is not None:
+			self.setlist_dialog.reload()
 
 	@Slot(QAction)
 	def savedialog(self, act: QAction):
@@ -525,7 +535,6 @@ class MainWindow(QMainWindow, EvListener):
 				match ev:
 					case model.KnobValue():
 						kn.refresh_val()
-			# TODO update these too
 			case model.ModuleType(mod_idx):
 				self.reload()
 			case model.ModuleEvent(mod_idx):
