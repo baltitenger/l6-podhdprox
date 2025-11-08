@@ -59,10 +59,6 @@ cabs = [no_cab] + [ mod for mod in models.values() if mod.id >> 16 == 0x0107 ]
 cab_index = { mod.id: i for i, mod in enumerate(cabs) }
 mics = [ mod for mod in models.values() if mod.id >> 16 == 0x0000 ]
 
-lane2amp = [0, 0, 1, 0, 1, 0]
-lane2amp_pos = [5, 0, 0, 0, 0, 7]
-lane2amp_end = [1, 1, 1, 0, 0, 0]
-
 @contextmanager
 def no_signals(obj: QObject):
 	obj.blockSignals(True)
@@ -655,11 +651,7 @@ class MainWindow(QMainWindow, EvListener):
 		if self.dragmod != -1:
 			self.setCursor(Qt.CursorShape.DragMoveCursor)
 
-	def swap_amps(self):
-		pass # TODO
-
 	def mouseReleaseEvent(self, event: QMouseEvent, /) -> None:
-		mods = self.model.preset.modules
 		if self.dragmod == -1:
 			return
 		dragmod, dropins = self.dragmod, self.dropins
@@ -667,30 +659,7 @@ class MainWindow(QMainWindow, EvListener):
 		if dropins == -1:
 			return
 		ins = self.ins_points[dropins]
-		lanes = self.model.preset.lanes
-		if dragmod < 2: # amp
-			if lane2amp[ins.lane] != dragmod:
-				self.swap_amps()
-			mods[0].pos = 0x0507 << 16 | lane2amp_pos[ins.lane]
-			if ins.lane not in (0, 5):
-				if ins.lane in (1, 3):
-					a, b = 1, 3
-				else:
-					a, b = 2, 4
-				merged = lanes[a] + lanes[b]
-				pt = ins.lane_pos
-				if ins.lane == b:
-					pt += len(lanes[a])
-				lanes[a] = merged[:pt]
-				lanes[b] = merged[pt:]
-		else:
-			src = lanes[mods[dragmod].lane()]
-			dst = lanes[ins.lane]
-			if src is dst and dst.index(dragmod) < ins.lane_pos:
-				ins.lane_pos -= 1
-			src.remove(dragmod)
-			dst.insert(ins.lane_pos, dragmod)
-		self.model.preset.lane2pos()
+		self.model.preset.move_mod(dragmod, ins.lane, ins.lane_pos)
 		self.send_ev(model.WholePreset())
 		self.reload()
 		self.update()
@@ -701,9 +670,9 @@ class MainWindow(QMainWindow, EvListener):
 		ins = self.ins_points[dropins]
 		lane = self.model.preset.lanes[ins.lane]
 		if self.dragmod < 2:
-			amp_pos = lane2amp_pos[ins.lane]
-			lane_pos = lane2amp_end[ins.lane] * len(lane)
-			if self.amp_pos == amp_pos and ins.lane_pos == lane_pos and lane2amp[ins.lane] == self.dragmod:
+			lm = lane_map[ins.lane]
+			lane_pos = lm.end * len(lane)
+			if self.amp_pos == lm.pos and ins.lane_pos == lane_pos and lm.amp == self.dragmod:
 				return -1
 			if ins.lane in (0, 5) and ins.lane_pos != lane_pos:
 				return -1

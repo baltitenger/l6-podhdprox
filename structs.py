@@ -120,6 +120,24 @@ class ModState:
 		data = head + b''.join( param.dump(struct) for param in self.knobs.values() )
 		return data.ljust(0x100, b'\0')
 
+@dataclass
+class LaneMap:
+	amp: int
+	'''Which amp is in the given lane'''
+	pos: int
+	'''Value of amp_pos if amp is in this lane'''
+	end: int
+	'''Which end of the lane has the amp'''
+
+lane_map = [
+	LaneMap(0, 5, 1),
+	LaneMap(0, 0, 1),
+	LaneMap(1, 0, 1),
+	LaneMap(0, 0, 0),
+	LaneMap(1, 0, 0),
+	LaneMap(0, 7, 0),
+]
+
 preset_fmt = '16s16xI4x'
 @dataclass(slots=True, init=False)
 class PresetState:
@@ -177,3 +195,33 @@ class PresetState:
 			else:
 				res[offs] = self.int_params[pid]
 		return bytes(res)
+
+	def swap_amps(self):
+		pass # TODO
+
+	def move_mod(self, src_idx: int, dst_lane: int, dst_lane_pos: int):
+		if src_idx < 2: # amp
+			lm = lane_map[dst_lane]
+			if lm.amp != src_idx:
+				self.swap_amps()
+			self.modules[0].pos = 0x0507 << 16 | lm.pos
+			if dst_lane not in (0, 5):
+				if dst_lane in (1, 3):
+					a, b = 1, 3
+				else:
+					a, b = 2, 4
+				merged = self.lanes[a] + self.lanes[b]
+				pt = dst_lane_pos
+				if dst_lane == b:
+					pt += len(self.lanes[a])
+				self.lanes[a] = merged[:pt]
+				self.lanes[b] = merged[pt:]
+		else:
+			src = self.lanes[self.modules[src_idx].lane()]
+			dst = self.lanes[dst_lane]
+			if src is dst and dst.index(src_idx) < dst_lane_pos:
+				dst_lane_pos -= 1
+			src.remove(src_idx)
+			dst.insert(dst_lane_pos, src_idx)
+		self.lane2pos()
+
