@@ -2,6 +2,7 @@ from __future__ import annotations
 from bisect import bisect
 from contextlib import contextmanager
 from dataclasses import dataclass
+from functools import cache
 from itertools import pairwise
 
 from PySide6.QtCore import (
@@ -137,11 +138,16 @@ class DropdownKnobView(KnobView):
 		self.knob.val = val
 		self.send_ev(model.KnobValue)
 
-def load_img(mod: ModState):
-	if mod.info.img_idx == 0:
+@cache
+def _load_img(img_idx: int):
+	if img_idx == 0:
 		return QPixmap()
-	return QPixmap(f':/img/{mod.info.img_idx:03}.png') \
-		.scaled(QSize(120, 120), Qt.AspectRatioMode.KeepAspectRatio)
+	pm = QPixmap(f':/img/{img_idx:03}.png')
+	pm.setDevicePixelRatio(max(pm.width()/120, pm.height()/120))
+	return pm
+
+def load_img(mod: ModState):
+	return _load_img(mod.info.img_idx)
 
 class ModMenu(QPushButton):
 	def __init__(self, model: ModState):
