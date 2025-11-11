@@ -1,7 +1,7 @@
 import asyncio
 from dataclasses import dataclass
 
-from structs import PresetState
+from structs import PresetState, Setlist
 
 @dataclass(frozen=True, slots=True)
 class Event: pass
@@ -99,24 +99,17 @@ class EvListener:
 			if listener is not self:
 				asyncio.create_task(listener.on_ev(ev))
 
-class SetlistModel:
-	name: str
-	presets: list[PresetState]
-	def __init__(self, name: str):
-		self.name = name
-		self.presets = [ PresetState() for _ in range(64) ]
-
 class Model:
 	listeners: list[EvListener]
 	sel_list: int
 	sel_preset: int
 	# current, in-memory preset
 	preset: PresetState
-	bank: list[SetlistModel]
+	bank: list[Setlist]
 	# TODO store / cache other presets?
 	def __init__(self) -> None:
 		self.listeners = []
 		self.sel_list = 0
 		self.sel_preset = 0
 		self.preset = PresetState()
-		self.bank = [ SetlistModel(f'Setlist {i+1}') for i in range(8) ]
+		self.bank = [ Setlist(f'Setlist {i+1}') for i in range(8) ]

@@ -240,3 +240,8 @@ class PresetState:
 			dst.insert(dst_lane_pos, src_idx)
 		self.lane2pos()
 
+@dataclass
+class Setlist:
+	name: str
+	presets: list[PresetState] = field(default_factory=lambda: [ PresetState() for _ in range(64) ])
+

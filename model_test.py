@@ -43,7 +43,7 @@ def test_pxio_vs_usb_parse():
 	with (
 			open('junk/reset.pxb',   'rb') as pxb,
 			open('junk/presets.bin', 'rb') as usb):
-		pxb_it = (pres for name, sl in parse_pxb(pxb) for pres in sl)
+		pxb_it = (pres for sl in parse_pxb(pxb) for pres in sl.presets)
 		for i, pxb_pres in enumerate(pxb_it):
 			usb_pres.load(usb.read(0x1000), LEStruct)
 			assert usb_pres == pxb_pres, i

@@ -36,6 +36,7 @@ from PySide6.QtWidgets import (
 	QLabel,
 	QMainWindow,
 	QMenu,
+	QMessageBox,
 	QPushButton,
 	QSizePolicy,
 	QStatusBar,
@@ -47,10 +48,10 @@ from PySide6.QtWidgets import (
 import app_rc
 from data import ModInfo, categories, ranges
 from data_gen import dropdowns, models
-from model import EvListener, Event, SetlistModel
+from model import EvListener, Event
 import model
-from pxio import parse_pxb, parse_pxe, parse_pxs, write_pxb, write_pxe, write_pxs
-from structs import KnobState, ModState, lane_map, no_mod
+from pxio import Setlist, parse_any_px, write_pxb, write_pxe, write_pxs
+from structs import KnobState, ModState, PresetState, lane_map, no_mod
 
 no_amp = ModInfo(no_mod.id, '[amp disabled]', 0, {}, [], [])
 amps = [no_amp] + [ mod for mod in models.values() if mod.id >> 16 == 0x0007 ]
@@ -387,6 +388,7 @@ class SetlistDialog(QDialog):
 				sl_it.appendRow(it)
 			root.appendRow(sl_it)
 		self.tree.setModel(self.model)
+		self.update_sel()
 
 	def update_sel(self):
 		sl = self.model.index(self.mw.model.sel_list, 0)
@@ -403,6 +405,8 @@ class MainWindow(QMainWindow, EvListener):
 		model.listeners.append(self)
 		self.model = model
 		self.on_closed = on_closed
+
+		self.setWindowTitle('POD HD Pro X')
 
 		tb = self.addToolBar('Main Toolbar')
 		tb.setMovable(False)
@@ -424,6 +428,7 @@ class MainWindow(QMainWindow, EvListener):
 		nextAct = tb.addAction(QIcon.fromTheme(QIcon.ThemeIcon.GoNext), 'Next preset')
 		nextAct.triggered.connect(self.next_pres)
 		nextAct.setShortcut(Qt.Key.Key_PageUp)
+		# TODO shift+click/pageup should switch setlists
 
 		self.setlist_dialog: SetlistDialog | None = None
 
@@ -441,25 +446,21 @@ class MainWindow(QMainWindow, EvListener):
 		self.do_load_file(file)
 
 	def do_load_file(self, file: str):
-		# TODO error handling
-		with open(file, 'rb') as f:
-			if file.endswith('.pxe'):
-				self.model.preset = parse_pxe(f)
-			elif file.endswith('.pxs'):
-				name, presets = parse_pxs(f)
-				self.model.bank[self.model.sel_list] = sl = SetlistModel(name)
-				sl.presets = list(presets)
-				self.model.preset = sl.presets[self.model.sel_preset]
-			elif file.endswith('.pxb'):
-				for i, (sl_name, presets) in enumerate(parse_pxb(f)):
-					self.model.bank[i] = sl = SetlistModel(sl_name)
-					sl.presets = list(presets)
-				self.model.preset = self.model.bank[self.model.sel_list].presets[self.model.sel_preset]
+		try:
+			with open(file, 'rb') as f:
+				res = parse_any_px(f)
+		except OSError as e:
+			QMessageBox.critical(self, 'Failed reading file', str(e), QMessageBox.StandardButton.Ok)
+		except AssertionError as e:
+			QMessageBox.critical(self, 'Failed parsing file', 'The file you tried to open is in an unknown format or contains invalid data', QMessageBox.StandardButton.Ok)
+		else:
+			if isinstance(res, PresetState):
+				self.model.bank[self.model.sel_list].presets[self.model.sel_preset] = res
+			elif isinstance(res, Setlist):
+				self.model.bank[self.model.sel_list] = res
 			else:
-				print('unexpected file extension, ignoring')
-		self.reload()
-		if self.setlist_dialog is not None:
-			self.setlist_dialog.reload()
+				self.model.bank = res
+			self.pres_changed()
 
 	@Slot(QAction)
 	def savedialog(self, act: QAction):
@@ -471,15 +472,17 @@ class MainWindow(QMainWindow, EvListener):
 		file, filt = QFileDialog.getSaveFileName(self, filter=';;'.join(filters))
 		if file == '':
 			return
-		with open(file, 'wb') as f:
-			idx = filters.index(filt)
-			if idx == 0:
-				write_pxe(f, self.model.preset)
-			elif idx == 1:
-				sl: SetlistModel = self.model.bank[self.model.sel_list]
-				write_pxs(f, sl.name, sl.presets)
-			elif idx == 2:
-				write_pxb(f, ((sl.name, sl.presets) for sl in self.model.bank))
+		try:
+			with open(file, 'wb') as f:
+				idx = filters.index(filt)
+				if idx == 0:
+					write_pxe(f, self.model.preset)
+				elif idx == 1:
+					write_pxs(f, self.model.bank[self.model.sel_list])
+				elif idx == 2:
+					write_pxb(f, self.model.bank)
+		except OSError as e:
+			QMessageBox.critical(self, 'Failed writing file', str(e), QMessageBox.StandardButton.Ok)
 
 	@Slot(QAction)
 	def add_module(self, act: QAction):
@@ -578,7 +581,7 @@ class MainWindow(QMainWindow, EvListener):
 
 	def reload(self):
 		sp = self.model.sel_preset
-		self.top_label.setText(f'{sp//4+1:02}{"ABCD"[sp%4]} {self.model.preset.name}')
+		self.top_label.setText(f'{self.model.bank[self.model.sel_list].name} - {sp//4+1:02}{"ABCD"[sp%4]} {self.model.preset.name}')
 		self.mods = {}
 		self.cols = {}
 		self.ins_points = []

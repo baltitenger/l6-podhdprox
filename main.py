@@ -42,6 +42,8 @@ async def async_main(app: QApplication):
 
 	mw = MainWindow(model, stop_usb_poller)
 
+	mw.reload()
+	mw.show()
 	argv = app.arguments()[1:]
 	if len(argv) == 0:
 		pass
@@ -51,9 +53,6 @@ async def async_main(app: QApplication):
 		print("Expected at most 1 argument (file to load)")
 		exit(1)
 
-	mw.reload()
-
-	mw.show()
 	await asyncio.Future()
 
 def main():
