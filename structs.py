@@ -3,7 +3,7 @@ from dataclasses import dataclass, field
 import struct
 from typing import Iterable, Literal, TYPE_CHECKING
 
-from data import AmpModInfo, KnobInfo, ModInfo, params
+from data import AmpModInfo, KnobInfo, ModIdx, ModInfo, params
 from data_gen import models
 from util import chunk_bytes
 
@@ -34,11 +34,7 @@ class KnobState:
 	max: int | float
 	ctrl: int
 
-	def __init__(self, model: ModInfo, pbuf: bytes | int, struct: MyPacker):
-		if isinstance(pbuf, int):
-			self.info = model.knobs[pbuf]
-			self.val = self.min = self.max = self.ctrl = 0
-			return
+	def __init__(self, model: ModInfo, pbuf: bytes, struct: MyPacker):
 		id, = struct.unpack('i', pbuf[:4])
 		self.info = model.knobs[id]
 		if self.info.id & 0xff0000:
@@ -53,7 +49,7 @@ class KnobState:
 
 no_mod = ModInfo(0x7fffffff, '[disabled]', 0, {}, [], [])
 
-mod_fmt = 'IIBBBxBxxB'
+mod_fmt = 'IIBBBBBxxB'
 @dataclass(slots=True, init=False)
 class ModState:
 	pres: PresetState = field(compare=False, repr=False)
@@ -62,6 +58,7 @@ class ModState:
 	en: int
 	tempo1: int
 	tempo2: int
+	valid: int
 	fs: int
 	info: ModInfo
 	knobs: dict[int, KnobState]
@@ -70,9 +67,9 @@ class ModState:
 		for pbuf in bufs:
 			p = KnobState(self.info, pbuf, struct)
 			self.knobs[p.info.id] = p
-		for id in self.info.knobs:
+		for id, default in zip(self.info.knobs, self.info.defs):
 			if id not in self.knobs:
-				self.knobs[id] = KnobState(self.info, id, struct)
+				self.knobs[id] = KnobState(self.info, default, LEStruct)
 
 	def update_model(self):
 		self.knobs = {}
@@ -95,7 +92,7 @@ class ModState:
 
 	def load(self, buf: bytes, struct: MyPacker):
 		assert len(buf) == 0x100
-		self.model_id, self.pos, self.en, self.tempo1, self.tempo2, self.fs, n_knobs = struct.unpack(mod_fmt, buf[:0x10])
+		self.model_id, self.pos, self.en, self.tempo1, self.tempo2, self.valid, self.fs, n_knobs = struct.unpack(mod_fmt, buf[:0x10])
 		self.update_model()
 		if self.info is not no_mod:
 			assert len(self.info.knobs) >= n_knobs, (self.info, len(self.info.knobs), n_knobs, buf.hex())
@@ -116,8 +113,8 @@ class ModState:
 		return (self.pos >> 16) & 0xff
 
 	def dump(self, struct: MyPacker) -> bytes:
-		head = struct.pack(mod_fmt, self.model_id, self.pos, self.en, self.tempo1, self.tempo2, self.fs, len(self.knobs))
-		data = head + b''.join( param.dump(struct) for param in self.knobs.values() )
+		head = struct.pack(mod_fmt, self.model_id, self.pos, self.en, self.tempo1, self.tempo2, self.valid, self.fs, len(self.knobs))
+		data = head + b''.join( knob.dump(struct) for knob in self.knobs.values() )
 		return data.ljust(0x100, b'\0')
 
 @dataclass
@@ -149,7 +146,7 @@ preset_fmt = '16s16xI4x'
 class PresetState:
 	name: str
 	modules: list[ModState]
-	lanes: list[list[int]]
+	lanes: list[list[ModIdx]]
 	flt_params: dict[int, float]
 	int_params: dict[int, int]
 
@@ -193,7 +190,7 @@ class PresetState:
 			self.modules[mod_idx].pos = 0x05 << 24 | lane << 16 | nr
 
 	def dump(self, struct: MyPacker) -> bytes:
-		head = struct.pack(preset_fmt, self.name.encode(), 0x1000c)
+		head = struct.pack(preset_fmt, self.name.ljust(0x10).encode(), 0x1000c)
 		res = head + b''.join( mod.dump(struct) for mod in self.modules )
 		res = bytearray(res.ljust(0x1000, b'\0'))
 		for pid, (is_flt, offs, name) in params.items():
@@ -212,7 +209,7 @@ class PresetState:
 	def set_amp_pos(self, pos: int):
 		self.modules[0].pos = 0x05070000 | pos
 
-	def move_mod(self, src_idx: int, dst_lane: int, dst_lane_pos: int):
+	def move_mod(self, src_idx: ModIdx, dst_lane: int, dst_lane_pos: int):
 		if src_idx < 2: # amp
 			lm = lane_map[dst_lane]
 			if lm.amp != src_idx:

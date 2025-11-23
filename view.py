@@ -4,6 +4,7 @@ from contextlib import contextmanager
 from dataclasses import dataclass
 from functools import cache
 from itertools import pairwise
+from typing import Callable
 
 from PySide6.QtCore import (
 	QItemSelectionModel,
@@ -46,7 +47,7 @@ from PySide6.QtWidgets import (
 )
 
 import app_rc
-from data import ModInfo, categories, ranges
+from data import KnobId, ModIdx, ModInfo, categories, ranges
 from data_gen import dropdowns, models
 from model import EvListener, Event
 import model
@@ -70,7 +71,7 @@ def no_signals(obj: QObject):
 		obj.blockSignals(False)
 
 class KnobView(QVBoxLayout):
-	def __init__(self, mw: MainWindow, mod_idx: int, knob: KnobState):
+	def __init__(self, mw: MainWindow, mod_idx: ModIdx, knob: KnobState):
 		super().__init__()
 
 		self.mw = mw
@@ -83,13 +84,13 @@ class KnobView(QVBoxLayout):
 		self.mw.send_ev(T(self.mod_idx, self.knob.info.id))
 
 class DialKnobView(KnobView):
-	def __init__(self, mw: MainWindow, mod_idx: int, knob: KnobState):
+	def __init__(self, mw: MainWindow, mod_idx: ModIdx, knob: KnobState):
 		super().__init__(mw, mod_idx, knob)
 
 		self.dial = QDial()
 		self.dial.setMaximum(100)
 		self.refresh_val()
-		self.dial.actionTriggered.connect(self.valChanged)
+		self.dial.actionTriggered.connect(self.val_changed)
 
 		self.addWidget(self.dial, stretch=1)
 		self.label = QLabel(knob.info.name, alignment=Qt.AlignmentFlag.AlignCenter)
@@ -102,13 +103,13 @@ class DialKnobView(KnobView):
 			self.dial.setValue(int(self.knob.val*100))
 
 	@Slot(int)
-	def valChanged(self, val: int):
+	def val_changed(self, val: int):
 		self.knob.val = self.dial.value()/100
 		self.send_ev(model.KnobValue)
 		self.mw.sb.showMessage(f'{self.knob.info.name}: {self.range.fmt(self.knob.val)}', 2000)
 
 class DropdownKnobView(KnobView):
-	def __init__(self, mw: MainWindow, mod_idx: int, knob: KnobState):
+	def __init__(self, mw: MainWindow, mod_idx: ModIdx, knob: KnobState):
 		super().__init__(mw, mod_idx, knob)
 
 		self.cbox = QComboBox()
@@ -116,7 +117,7 @@ class DropdownKnobView(KnobView):
 		self.dd = dropdowns[knob.info.dropdown_id]
 		self.cbox.addItems(self.dd.opts)
 		self.refresh_val()
-		self.cbox.currentIndexChanged.connect(self.idxChanged)
+		self.cbox.currentIndexChanged.connect(self.idx_changed)
 
 		self.addWidget(self.cbox, stretch=1, alignment=Qt.AlignmentFlag.AlignCenter)
 		self.label = QLabel(knob.info.name, alignment=Qt.AlignmentFlag.AlignCenter)
@@ -130,7 +131,7 @@ class DropdownKnobView(KnobView):
 			self.cbox.setCurrentIndex(val - self.dd.offset)
 
 	@Slot(int)
-	def idxChanged(self, idx: int):
+	def idx_changed(self, idx: int):
 		val = idx + self.dd.offset
 		if isinstance(self.knob.val, float):
 			val /= len(self.dd.opts)-1
@@ -150,8 +151,8 @@ def _load_img(img_idx: int):
 def load_img(mod: ModState):
 	return _load_img(mod.info.img_idx)
 
-class ModMenu(QPushButton):
-	def __init__(self, model: ModState):
+class FxMenu(QPushButton):
+	def __init__(self):
 		super().__init__()
 
 		menu = QMenu(self)
@@ -170,15 +171,15 @@ class ModMenu(QPushButton):
 	# TODO quick switching with mouse wheel
 	# def wheelEvent(self, event: QWheelEvent, /) -> None:
 
-class ModViewBase(QObject):
-	def __init__(self, mw: MainWindow, side: int, mod_idx: int, col: int):
+class ModView(QObject):
+	def __init__(self, mw: MainWindow, side: int, mod_idx: ModIdx, col: int):
 		super().__init__()
 		self.mw = mw
 		self.side = side
 		self.mod_idx = mod_idx
 		self.col = col
 		self.mod = mw.model.preset.modules[mod_idx]
-		self.knobs: dict[int, KnobView] = {}
+		self.knobs: dict[KnobId, KnobView] = {}
 
 		self.en = QCheckBox("Enabled")
 		self.refresh_en()
@@ -210,17 +211,17 @@ class ModViewBase(QObject):
 		self.mod.en = int(not not val)
 		self.mw.send_ev(model.ModuleOnOff(self.mod_idx))
 
-class ModView(ModViewBase):
-	def __init__(self, mw: MainWindow, side: int, mod_idx: int, col: int):
+class FxModView(ModView):
+	def __init__(self, mw: MainWindow, side: int, mod_idx: ModIdx, col: int):
 		super().__init__(mw, side, mod_idx, col)
 
 		self.img = QLabel(alignment=Qt.AlignmentFlag.AlignCenter)
 		# self.img.setCursor(Qt.CursorShape.OpenHandCursor)
 		mw.gr.addWidget(self.img, side % 2, col, 1 + side//2, 1)
 
-		self.mod_menu = ModMenu(self.mod)
-		self.mod_menu.menu().triggered.connect(self.type_changed)
-		mw.gr.addWidget(self.mod_menu, 2, col)
+		self.fx_menu = FxMenu()
+		self.fx_menu.menu().triggered.connect(self.type_changed)
+		mw.gr.addWidget(self.fx_menu, 2, col)
 
 		mw.gr.addWidget(self.en, 3, col, alignment=Qt.AlignmentFlag.AlignCenter)
 
@@ -228,8 +229,8 @@ class ModView(ModViewBase):
 
 	def refresh_type(self):
 		self.img.setPixmap(load_img(self.mod))
-		with no_signals(self.mod_menu):
-			self.mod_menu.setText(self.mod.info.name)
+		with no_signals(self.fx_menu):
+			self.fx_menu.setText(self.mod.info.name)
 		self.refresh_knobs()
 
 	@Slot(QAction)
@@ -241,23 +242,23 @@ class ModView(ModViewBase):
 		else:
 			self.refresh_type()
 
-class AmpModView(ModViewBase):
-	def __init__(self, mw: MainWindow, side: int, mod_idx: int, col: int):
+class AmpModView(ModView):
+	def __init__(self, mw: MainWindow, side: int, mod_idx: ModIdx, col: int):
 		super().__init__(mw, side, mod_idx, col)
 		self.cab = mw.model.preset.modules[mod_idx+2]
 
 		self.amp_img = QLabel(alignment=Qt.AlignmentFlag.AlignCenter)
 		self.cab_img = QLabel(alignment=Qt.AlignmentFlag.AlignCenter)
 
-		self.ampbox = QComboBox()
-		self.ampbox.setStyleSheet("QComboBox { padding-top: 1px; padding-bottom: 1px; }");
+		self.ampbox = QComboBox(maxVisibleItems=16)
+		# self.ampbox.setStyleSheet("padding-top: 1px; padding-bottom: 1px;");
 		self.ampbox.addItems([amp.name for amp in amps])
 		self.ampbox.currentIndexChanged.connect(self.amp_changed)
 		self.ampbox.setToolTip('Amp')
 		mw.gr.addWidget(self.ampbox, 2, col)
 
-		self.cabbox = QComboBox()
-		self.cabbox.setStyleSheet("QComboBox { padding-top: 1px; padding-bottom: 1px; }");
+		self.cabbox = QComboBox(maxVisibleItems=16)
+		# self.cabbox.setStyleSheet("padding-top: 1px; padding-bottom: 1px;");
 		self.cabbox.addItems([cab.name for cab in cabs])
 		self.cabbox.currentIndexChanged.connect(self.cab_changed)
 		self.cabbox.setToolTip('Cab')
@@ -371,6 +372,7 @@ class SetlistDialog(QDialog):
 
 		lay = QVBoxLayout()
 		lay.addWidget(self.tree)
+		lay.setContentsMargins(0, 0, 0, 0)
 		self.setLayout(lay)
 
 	def sizeHint(self, /) -> QSize:
@@ -396,11 +398,11 @@ class SetlistDialog(QDialog):
 		self.tree.selectionModel().setCurrentIndex(idx, QItemSelectionModel.SelectionFlag.ClearAndSelect)
 
 class MainWindow(QMainWindow, EvListener):
-	mods: dict[int, ModViewBase]
-	cols: dict[int, int] # col -> mod_idx
+	mods: dict[ModIdx, ModView]
+	cols: dict[int, ModIdx]
 	ins_points: list[InsPoint]
 
-	def __init__(self, model: model.Model, on_closed):
+	def __init__(self, model: model.Model, on_closed: Callable[[], None]):
 		super().__init__()
 		model.listeners.append(self)
 		self.model = model
@@ -421,13 +423,25 @@ class MainWindow(QMainWindow, EvListener):
 		self.top_label = QLabel(alignment=Qt.AlignmentFlag.AlignCenter)
 		self.top_label.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Preferred)
 		tb.addWidget(self.top_label)
-		prevAct = tb.addAction(QIcon.fromTheme(QIcon.ThemeIcon.GoPrevious), 'Prev preset')
-		prevAct.triggered.connect(self.prev_pres)
-		prevAct.setShortcut(Qt.Key.Key_PageDown)
+
+		act = tb.addAction(QIcon.fromTheme('go-previous-skip'), 'Prev setlist')
+		act.triggered.connect(self.prev_list)
+		act.setShortcut(Qt.Key.Key_Home)
+
+		act = tb.addAction(QIcon.fromTheme('go-previous'), 'Prev preset')
+		act.triggered.connect(self.prev_pres)
+		act.setShortcut(Qt.Key.Key_PageUp)
+
 		tb.addAction(QIcon.fromTheme('application-menu'), 'Setlists').triggered.connect(self.show_setlist_dialog)
-		nextAct = tb.addAction(QIcon.fromTheme(QIcon.ThemeIcon.GoNext), 'Next preset')
-		nextAct.triggered.connect(self.next_pres)
-		nextAct.setShortcut(Qt.Key.Key_PageUp)
+
+		act = tb.addAction(QIcon.fromTheme('go-next'), 'Next preset')
+		act.triggered.connect(self.next_pres)
+		act.setShortcut(Qt.Key.Key_PageDown)
+
+		act = tb.addAction(QIcon.fromTheme('go-next-skip'), 'Next setlist')
+		act.triggered.connect(self.next_list)
+		act.setShortcut(Qt.Key.Key_End)
+
 		# TODO shift+click/pageup should switch setlists
 
 		self.setlist_dialog: SetlistDialog | None = None
@@ -505,6 +519,16 @@ class MainWindow(QMainWindow, EvListener):
 		self.model.sel_preset = (self.model.sel_preset + 64 - 1) % 64
 		self.pres_changed()
 
+	@Slot(QAction)
+	def next_list(self, act: QAction):
+		self.model.sel_list = (self.model.sel_list + 1) % 8
+		self.pres_changed()
+
+	@Slot(QAction)
+	def prev_list(self, act: QAction):
+		self.model.sel_list = (self.model.sel_list + 8 - 1) % 8
+		self.pres_changed()
+
 	def pres_changed(self):
 		self.model.preset = self.model.bank[self.model.sel_list].presets[self.model.sel_preset]
 		if self.setlist_dialog is not None:
@@ -547,7 +571,7 @@ class MainWindow(QMainWindow, EvListener):
 					case model.ModuleOnOff():
 						mod.refresh_en()
 
-	def create_mod(self, side: int, mod_idx: int, col: int | None = None):
+	def create_mod(self, side: int, mod_idx: ModIdx, col: int | None = None):
 		# if self.model.preset.modules[mod_idx].model is no_mod:
 		# 	return
 		if col is None:
@@ -555,7 +579,7 @@ class MainWindow(QMainWindow, EvListener):
 		if mod_idx < 2:
 			mod = AmpModView(self, side, mod_idx, col)
 		else:
-			mod = ModView(self, side, mod_idx, col)
+			mod = FxModView(self, side, mod_idx, col)
 		self.mods[mod_idx] = mod
 		self.cols[col] = mod_idx
 

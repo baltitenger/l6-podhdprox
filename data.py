@@ -1,5 +1,9 @@
 from dataclasses import dataclass
 
+type ModIdx = int
+type ModId = int
+type KnobId = int
+
 @dataclass
 class Dropdown:
 	offset: int
@@ -7,24 +11,24 @@ class Dropdown:
 
 @dataclass
 class KnobInfo:
-	id: int
+	id: KnobId
 	name: str
 	dropdown_id: int
 	range_id: int
 
 @dataclass
 class ModInfo:
-	id: int
+	id: ModId
 	name: str
 	img_idx: int
-	knobs: dict[int, KnobInfo]
+	knobs: dict[KnobId, KnobInfo]
 	tempo: list[KnobInfo]
 	defs: list[bytes]
 
 @dataclass
 class AmpModInfo(ModInfo):
-	def_cab: int
-	def_mic: int
+	def_cab: ModId
+	def_mic: ModId
 
 params = {
 	0x00: (0, 3368, 'variax ??'),

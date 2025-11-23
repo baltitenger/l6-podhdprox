@@ -42,6 +42,7 @@ class Transport:
 		data = chunk[4:]
 		while len(data) < len1:
 			data += await self.rx0()
+		assert len(data) == len1
 		return flags, data
 
 	async def rx2(self):
@@ -55,6 +56,7 @@ class Transport:
 			flag2, chunk2 = await self.rx1()
 			assert flag2 == 4, 'expected continuation packet'
 			data += chunk2
+		assert len(data) == len2
 		return data
 
 	async def rx_loop(self):

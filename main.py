@@ -18,14 +18,13 @@ async def on_hotplug(ctx: USBContext, dev: USBDevice, event: int):
 		ad = UsbAdapter(hdl, model)
 		async with asyncio.TaskGroup() as tg:
 			tg.create_task(ad.rx_loop())
-			tg.create_task(ad.rx_preset())
+			await ad.rx_preset()
 	# TODO handle disconnect
 
 def usb_poller():
 	while run:
 		usb_ctx.handleEvents()
 
-@Slot()
 def stop_usb_poller():
 	global run
 	run = False

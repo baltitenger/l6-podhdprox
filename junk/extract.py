@@ -58,7 +58,7 @@ amp_spec = {
 	0x070082: 5,
 }
 
-with open('/home/baltazar/Downloads/4/POD HD Pro X Edit/POD HD Pro X Edit.exe', 'rb') as f:
+with open(f'{src}/POD HD Pro X Edit.exe', 'rb') as f:
 	# model extra params
 	f.seek(0x00105844)
 	for _ in range(5):
@@ -129,7 +129,7 @@ with open('/home/baltazar/Downloads/4/POD HD Pro X Edit/POD HD Pro X Edit.exe', 
 
 #print(stuff)
 
-
+# core dump created manually, offset not predictable
 with open('dump', 'rb') as f:
 	f.seek(0x00444f60)
 	while True:

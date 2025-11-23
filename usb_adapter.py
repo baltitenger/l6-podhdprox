@@ -9,7 +9,7 @@ cmd2evt: dict[int, type[model.Event]] = {
 	0x2d: model.KnobValue,
 	0x2e: model.KnobMin,
 	0x2f: model.KnobMax,
-	0x30: model.KnobMax,
+	0x30: model.KnobCtrl,
 
 	0x11: model.ModuleType,
 	0x13: model.ModuleOnOff,
@@ -31,7 +31,19 @@ class UsbAdapter(Transport, model.EvListener):
 		preset = self.model.preset
 		match ev:
 			case model.WholePreset():
-				await self.send_cmd(0x02, struct.pack('2h', -1, -1) + preset.dump(struct))
+				with open('/tmp/ma', 'rb') as f:
+					foo = f.read(0x1000)
+				# with open('/tmp/asdf', 'rb') as f:
+				# 	foo = f.read(0x1004)
+				sl = 6
+				pres = 10
+				await self.send_cmd(0x21, struct.pack('i', 0))
+				await self.send_cmd(0x2c, struct.pack('i', sl))
+				await self.send_cmd(0x27, struct.pack('i', pres))
+				await self.send_cmd(0x20, struct.pack('3i', 0, 9, sl))
+				await self.send_cmd(0x20, struct.pack('3i', 0, 8, pres))
+				await self.send_cmd(0x02, struct.pack('2h', -1, -1) + foo)
+				await self.send_cmd(0x02, struct.pack('2h', -1, -1) + foo)
 			case model.ListSel():
 				await self.send_cmd(0x2c, struct.pack('i', self.model.sel_list))
 			case model.PresetSel():
@@ -147,6 +159,8 @@ class UsbAdapter(Transport, model.EvListener):
 				self.model.preset.name = name
 				self.send_ev(model.PresetName())
 				# print(f'preset saved as {name}') # might implicitly switch active presets...
+			# 0x23: ?? (no data)
+			# 0x09
 			case _:
 				print('res' if is_resp else 'evt', hex(cmd), data.hex())
 
@@ -155,6 +169,9 @@ class UsbAdapter(Transport, model.EvListener):
 
 	async def rx_setlist(self, setlist: int):
 		await self.send_cmd(0x28, struct.pack('h2x', setlist))
+
+	# 0x20: 3i -> 0 9 x -> sel list
+	# 0x20: 3i -> 0 8 x -> sel pres
 
 	async def set_preset(self, setlist: int, preset: int, data: bytes):
 		await self.send_cmd(0x02, struct.pack('2h', preset, setlist) + data)
