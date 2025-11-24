@@ -17,7 +17,8 @@ class Transport:
 		self.in_xfer.setBulk(0x81, 0x100, make_callback(self.on_recv))
 
 		self.out_xfer = hdl.getTransfer()
-		self.out_xfer.setBulk(0x01, 0x100, make_callback(self.on_send))
+		self.out_max_size = hdl.getDevice().getMaxPacketSize(0x01)
+		self.out_xfer.setBulk(0x01, self.out_max_size, make_callback(self.on_send))
 
 		self.send_lk = asyncio.Lock()
 
@@ -98,7 +99,7 @@ class Transport:
 			for chunk in chunk_bytes(data, 0xfc):
 				x, y = 0, 0 # seemingly ignored
 				hdr = struct.pack('4B', len(chunk), x, 1 if first else 4, y)
-				for chunk0 in chunk_bytes(hdr+chunk, 0x40):
+				for chunk0 in chunk_bytes(hdr+chunk, self.out_max_size):
 					await self.tx0(chunk0)
 				first = False
 
