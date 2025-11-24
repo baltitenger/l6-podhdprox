@@ -7,6 +7,9 @@ from structs import PresetState, Setlist
 class Event: pass
 
 @dataclass(frozen=True, slots=True)
+class Startup(Event): pass
+
+@dataclass(frozen=True, slots=True)
 class WholePreset(Event): pass
 
 @dataclass(frozen=True, slots=True)
@@ -16,7 +19,8 @@ class ListSel(Event): pass
 class PresetSel(Event): pass
 
 @dataclass(frozen=True, slots=True)
-class ListName(Event): pass
+class ListName(Event):
+	nr: int
 
 @dataclass(frozen=True, slots=True)
 class PresetName(Event): pass

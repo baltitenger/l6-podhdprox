@@ -2,7 +2,7 @@ from usb1 import USBDeviceHandle
 
 from data import params, semitones
 import model
-from structs import no_mod
+from structs import PresetState, no_mod
 from usb_transport import Transport, struct
 
 cmd2evt: dict[int, type[model.Event]] = {
@@ -30,26 +30,24 @@ class UsbAdapter(Transport, model.EvListener):
 	async def on_ev(self, ev: model.Event):
 		preset = self.model.preset
 		match ev:
+			case model.Startup():
+				await self.send_cmd(0x21, struct.pack('i', 9)) # get selected list
+				await self.send_cmd(0x21, struct.pack('i', 8)) # get selected preset
+				await self.send_cmd(0x00, struct.pack('2h', -1, -1)) # get active preset
+				# get setlist names
+				for i in range(8):
+					await self.send_cmd(0x28, struct.pack('h2x', i))
+				# TODO get all presets?
 			case model.WholePreset():
-				with open('/tmp/ma', 'rb') as f:
-					foo = f.read(0x1000)
-				# with open('/tmp/asdf', 'rb') as f:
-				# 	foo = f.read(0x1004)
-				sl = 6
-				pres = 10
-				await self.send_cmd(0x21, struct.pack('i', 0))
-				await self.send_cmd(0x2c, struct.pack('i', sl))
-				await self.send_cmd(0x27, struct.pack('i', pres))
-				await self.send_cmd(0x20, struct.pack('3i', 0, 9, sl))
-				await self.send_cmd(0x20, struct.pack('3i', 0, 8, pres))
-				await self.send_cmd(0x02, struct.pack('2h', -1, -1) + foo)
-				await self.send_cmd(0x02, struct.pack('2h', -1, -1) + foo)
+				await self.send_cmd(0x02, struct.pack('2h', -1, -1) + self.model.preset.dump(struct))
 			case model.ListSel():
 				await self.send_cmd(0x2c, struct.pack('i', self.model.sel_list))
+				await self.send_cmd(0x20, struct.pack('3i', 0, 9, self.model.sel_list))
 			case model.PresetSel():
 				await self.send_cmd(0x27, struct.pack('i', self.model.sel_preset))
-			case model.ListName():
-				await self.send_cmd(0x2c, struct.pack('i', self.model.sel_list))
+				await self.send_cmd(0x20, struct.pack('3i', 0, 8, self.model.sel_preset))
+			case model.ListName(nr):
+				await self.send_cmd(0x2a, struct.pack('i16s', nr, self.model.bank[nr].name.encode()))
 			case model.ParamChangeInt(nr):
 				arg = self.model.preset.int_params[nr]
 				await self.send_cmd(0x16, struct.pack('4x2ii', 0, nr, arg))
@@ -130,6 +128,16 @@ class UsbAdapter(Transport, model.EvListener):
 					val, = self.model.preset.int_params[nr], = struct.unpack('i', data[-4:])
 					self.send_ev(model.ParamChangeInt(nr))
 				print(f'param ({nr}) {params[nr][2]} changed: {val}')
+			case 0x22:
+				nr, val = struct.unpack('4xii', data)
+				if nr == 9:
+					self.model.sel_list = val
+					self.send_ev(model.ListSel())
+				elif nr == 8:
+					self.model.sel_preset = val
+					self.send_ev(model.PresetSel())
+				else:
+					print(f'thing {nr}: {val}')
 			case 0x24:
 				note, y, z, w = struct.unpack('ihbb', data)
 				if note >= 0:
@@ -142,9 +150,12 @@ class UsbAdapter(Transport, model.EvListener):
 				self.model.sel_preset = pres
 				self.send_ev(model.PresetSel())
 			case 0x29:
-				# TODO store setlists (at least names)
 				nr, name = struct.unpack('i16s', data)
-				# print(f'setlist {nr} name: {name.decode()}')
+				self.model.bank[nr].name = name.decode().rstrip()
+				self.send_ev(model.ListName(nr))
+			case 0x2b:
+				# setlist name change ack, body is i(0)
+				pass
 			case 0x2c:
 				sl, = struct.unpack('i', data)
 				self.model.sel_list = sl
@@ -159,25 +170,7 @@ class UsbAdapter(Transport, model.EvListener):
 				self.model.preset.name = name
 				self.send_ev(model.PresetName())
 				# print(f'preset saved as {name}') # might implicitly switch active presets...
-			# 0x23: ?? (no data)
+			# 0x23: ?? (no data), sent after changing preset / list
 			# 0x09
 			case _:
 				print('res' if is_resp else 'evt', hex(cmd), data.hex())
-
-	async def rx_preset(self, setlist: int = -1, preset: int = -1):
-		await self.send_cmd(0x00, struct.pack('2h', preset, setlist))
-
-	async def rx_setlist(self, setlist: int):
-		await self.send_cmd(0x28, struct.pack('h2x', setlist))
-
-	# 0x20: 3i -> 0 9 x -> sel list
-	# 0x20: 3i -> 0 8 x -> sel pres
-
-	async def set_preset(self, setlist: int, preset: int, data: bytes):
-		await self.send_cmd(0x02, struct.pack('2h', preset, setlist) + data)
-
-	async def set_flt_param(self, param: int, val: float):
-		await self.send_cmd(0x16, struct.pack('4xiif', 1, param, val))
-
-	async def set_int_param(self, param: int, val: int):
-		await self.send_cmd(0x16, struct.pack('4xiii', 0, param, val))

@@ -98,6 +98,7 @@ class Transport:
 			for chunk in chunk_bytes(data, 0xfc):
 				x, y = 0, 0 # seemingly ignored
 				hdr = struct.pack('4B', len(chunk), x, 1 if first else 4, y)
-				await self.tx0(hdr+chunk)
+				for chunk0 in chunk_bytes(hdr+chunk, 40):
+					await self.tx0(chunk0)
 				first = False
 

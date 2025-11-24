@@ -58,7 +58,7 @@ class ModState:
 	en: int
 	tempo1: int
 	tempo2: int
-	valid: int
+	valid: int # otherwise -> DSP OVERLOAD
 	fs: int
 	info: ModInfo
 	knobs: dict[int, KnobState]
@@ -80,7 +80,7 @@ class ModState:
 
 	def __init__(self, pres: PresetState, idx: int):
 		self.pres = pres
-		self.en = self.tempo1 = self.tempo2 = self.fs = 0
+		self.en = self.tempo1 = self.tempo2 = self.valid = self.fs = 0
 		if idx < 4:
 			self.model_id = (0x0007ffff, 0x0007ffff, 0x0107ffff, 0x0107ffff)[idx]
 			self.pos      = (0x05070005, 0x05080000, 0x05070000, 0x05080000)[idx]
@@ -102,7 +102,8 @@ class ModState:
 	def change_type(self, model_id: int):
 		self.model_id = model_id
 		self.update_model()
-		if self.info is not no_mod:
+		self.valid = self.info is not no_mod
+		if self.valid:
 			self.load_knobs(self.info.defs, LEStruct)
 			if isinstance(self.info, AmpModInfo):
 				idx = self.pres.modules.index(self)
@@ -190,7 +191,7 @@ class PresetState:
 			self.modules[mod_idx].pos = 0x05 << 24 | lane << 16 | nr
 
 	def dump(self, struct: MyPacker) -> bytes:
-		head = struct.pack(preset_fmt, self.name.ljust(0x10).encode(), 0x1000c)
+		head = struct.pack(preset_fmt, self.name.encode(), 0x1000c)
 		res = head + b''.join( mod.dump(struct) for mod in self.modules )
 		res = bytearray(res.ljust(0x1000, b'\0'))
 		for pid, (is_flt, offs, name) in params.items():

@@ -7,7 +7,7 @@ from PySide6 import QtAsyncio
 from PySide6.QtWidgets import QApplication
 from usb1 import HOTPLUG_EVENT_DEVICE_ARRIVED, USBContext, USBDevice
 
-from model import Model
+from model import Model, Startup
 from usb_adapter import UsbAdapter
 from util import make_callback
 from view import MainWindow, Slot
@@ -18,7 +18,7 @@ async def on_hotplug(ctx: USBContext, dev: USBDevice, event: int):
 		ad = UsbAdapter(hdl, model)
 		async with asyncio.TaskGroup() as tg:
 			tg.create_task(ad.rx_loop())
-			await ad.rx_preset()
+			await ad.on_ev(Startup())
 	# TODO handle disconnect
 
 def usb_poller():

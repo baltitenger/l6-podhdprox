@@ -531,6 +531,8 @@ class MainWindow(QMainWindow, EvListener):
 
 	def pres_changed(self):
 		self.model.preset = self.model.bank[self.model.sel_list].presets[self.model.sel_preset]
+		self.send_ev(model.ListSel())
+		self.send_ev(model.PresetSel())
 		if self.setlist_dialog is not None:
 			self.setlist_dialog.update_sel()
 		self.reload()
