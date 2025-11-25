@@ -75,8 +75,8 @@ params = {
 	0x2d: (1, 3432, 'Mix B level'), # can also cause 4090 to change
 	0x2e: (1, 3420, 'Mix A pan'),
 	0x2f: (1, 3424, 'Mix B pan'),
-	0x30: (1, 3452, 'Cab A bypass vol?'),
-	0x31: (1, 3456, 'Cab B bypass vol?'),
+	0x30: (1, 3452, 'Amp A bypass vol'),
+	0x31: (1, 3456, 'Amp B bypass vol'),
 	0x32: (1, 3404, 'Cab A E.R.'),
 	0x33: (1, 3412, 'Cab B E.R.'),
 	0x34: (0, 4088, 'Cab A Mic'),

@@ -9,6 +9,11 @@ from util import chunk_bytes, make_callback
 
 struct = LEStruct
 
+class XferError(Exception):
+	def __init__(self, msg: str, status: int):
+		super().__init__(msg, status)
+		self.status = status
+
 class Transport:
 	def __init__(self, hdl: USBDeviceHandle) -> None:
 		hdl.claimInterface(1)
@@ -25,7 +30,7 @@ class Transport:
 	async def on_recv(self, xfer: USBTransfer):
 		fut = cast(asyncio.Future[bytes], xfer.getUserData())
 		if xfer.getStatus() != TRANSFER_COMPLETED:
-			fut.set_exception(ValueError('USB recv error', xfer.getStatus()))
+			fut.set_exception(XferError('USB recv error', xfer.getStatus()))
 		else:
 			buf = cast(bytearray, xfer.getBuffer())
 			fut.set_result(bytes(buf[:xfer.getActualLength()]))
@@ -61,23 +66,27 @@ class Transport:
 		return data
 
 	async def rx_loop(self):
-		while True:
-			try:
-				pkt = await self.rx2()
-				is_resp, x, y, typ = struct.unpack('4b', pkt[:4])
-				data = pkt[4:]
-				assert x == 0x40 and y == 0x00, 'weird header3'
-			except AssertionError as e:
-				print('Ignoring malformed usb message:', e)
-				continue
-			await self.on_pkt(is_resp, typ, data)
+		try:
+			while True:
+				try:
+					pkt = await self.rx2()
+					is_resp, x, y, typ = struct.unpack('4b', pkt[:4])
+					data = pkt[4:]
+					assert x == 0x40 and y == 0x00, 'weird header3'
+				except AssertionError as e:
+					print('Ignoring malformed usb message:', e)
+					continue
+				await self.on_pkt(is_resp, typ, data)
+		except XferError:
+			# none of these are recoverable, exit loop and close device
+			pass
 
 	async def on_pkt(self, is_resp: int, cmd: int, data: bytes): ...
 
 	async def on_send(self, xfer: USBTransfer):
 		fut = cast(asyncio.Future[None], xfer.getUserData())
 		if xfer.getStatus() != TRANSFER_COMPLETED:
-			fut.set_exception(ValueError('USB send error', xfer.getStatus()))
+			fut.set_exception(XferError('USB send error', xfer.getStatus()))
 		else:
 			fut.set_result(None)
 

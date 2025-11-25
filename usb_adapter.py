@@ -2,7 +2,7 @@ from usb1 import USBDeviceHandle
 
 from data import params, semitones
 import model
-from structs import PresetState, no_mod
+from structs import no_mod
 from usb_transport import Transport, struct
 
 cmd2evt: dict[int, type[model.Event]] = {
@@ -73,7 +73,6 @@ class UsbAdapter(Transport, model.EvListener):
 					case model.ModuleTempo2():  arg = module.tempo2
 					case model.ModuleFswitch(): arg = module.fs
 					case _: assert False, 'messed up'
-				print('sending module event', mod, hex(arg))
 				await self.send_cmd(evt2cmd[type(ev)], struct.pack('4x2i', mod, arg))
 
 	async def on_pkt(self, is_resp: int, cmd: int, data: bytes):
@@ -117,7 +116,8 @@ class UsbAdapter(Transport, model.EvListener):
 				# TODO check if it's the current one
 				self.send_ev(model.WholePreset())
 			case 0x03:
-				print('set preset ack: ', data.hex())
+				# set preset ack, data is always i(0)
+				pass
 			case 0x16:
 				typ, nr = struct.unpack('4x2i', data[:-4])
 				assert typ in (0, 1)
@@ -127,7 +127,7 @@ class UsbAdapter(Transport, model.EvListener):
 				else:
 					val, = self.model.preset.int_params[nr], = struct.unpack('i', data[-4:])
 					self.send_ev(model.ParamChangeInt(nr))
-				print(f'param ({nr}) {params[nr][2]} changed: {val}')
+				# print(f'param ({nr}) {params[nr][2]} changed: {val}')
 			case 0x22:
 				nr, val = struct.unpack('4xii', data)
 				if nr == 9:
@@ -170,7 +170,8 @@ class UsbAdapter(Transport, model.EvListener):
 				self.model.preset.name = name
 				self.send_ev(model.PresetName())
 				# print(f'preset saved as {name}') # might implicitly switch active presets...
-			# 0x23: ?? (no data), sent after changing preset / list
-			# 0x09
+			case 0x23:
+				# no data, sent after changing preset / list
+				pass
 			case _:
 				print('res' if is_resp else 'evt', hex(cmd), data.hex())

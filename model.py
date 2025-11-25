@@ -98,7 +98,7 @@ class EvListener:
 	model: 'Model'
 	async def on_ev(self, ev: Event): ...
 	def send_ev(self, ev: Event):
-		print(self, ev)
+		# print(self, ev)
 		for listener in self.model.listeners:
 			if listener is not self:
 				asyncio.create_task(listener.on_ev(ev))

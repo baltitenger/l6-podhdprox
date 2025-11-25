@@ -7,5 +7,6 @@ def chunk_bytes(buf: bytes, n: int, start = 0, maxc = None):
 def make_callback(cb):
 	loop = asyncio.get_event_loop()
 	def inner(*args, **kwargs):
-		asyncio.run_coroutine_threadsafe(cb(*args, **kwargs), loop)
+		if loop.is_running():
+			asyncio.run_coroutine_threadsafe(cb(*args, **kwargs), loop)
 	return inner

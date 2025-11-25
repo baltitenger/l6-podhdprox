@@ -464,7 +464,7 @@ class MainWindow(QMainWindow, EvListener):
 			with open(file, 'rb') as f:
 				res = parse_any_px(f)
 		except OSError as e:
-			QMessageBox.critical(self, 'Failed reading file', str(e), QMessageBox.StandardButton.Ok)
+			QMessageBox.critical(self, 'Failed reading file', f'Failed reading file: {e}', QMessageBox.StandardButton.Ok)
 		except AssertionError as e:
 			QMessageBox.critical(self, 'Failed parsing file', 'The file you tried to open is in an unknown format or contains invalid data', QMessageBox.StandardButton.Ok)
 		else:
@@ -496,7 +496,7 @@ class MainWindow(QMainWindow, EvListener):
 				elif idx == 2:
 					write_pxb(f, self.model.bank)
 		except OSError as e:
-			QMessageBox.critical(self, 'Failed writing file', str(e), QMessageBox.StandardButton.Ok)
+			QMessageBox.critical(self, 'Failed writing file', f'Failed writing file: {e}', QMessageBox.StandardButton.Ok)
 
 	@Slot(QAction)
 	def add_module(self, act: QAction):
