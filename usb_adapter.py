@@ -1,9 +1,9 @@
 from usb1 import USBDeviceHandle
 
-from data import params, semitones
+from data import semitones
 import model
 from structs import no_mod
-from usb_transport import Transport, struct
+from usb_transport import UsbTransport, struct
 
 cmd2evt: dict[int, type[model.Event]] = {
 	0x2d: model.KnobValue,
@@ -21,7 +21,7 @@ cmd2evt: dict[int, type[model.Event]] = {
 evt2cmd = { v: k for k, v in cmd2evt.items() }
 
 # TODO error handling (malformed msg, disconnect, etc)
-class UsbAdapter(Transport, model.EvListener):
+class UsbAdapter(UsbTransport, model.EvListener):
 	def __init__(self, hdl: USBDeviceHandle, model: model.Model) -> None:
 		super().__init__(hdl)
 		model.listeners.append(self)

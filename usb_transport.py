@@ -14,7 +14,7 @@ class XferError(Exception):
 		super().__init__(msg, status)
 		self.status = status
 
-class Transport:
+class UsbTransport:
 	def __init__(self, hdl: USBDeviceHandle) -> None:
 		hdl.claimInterface(1)
 

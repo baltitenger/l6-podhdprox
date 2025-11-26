@@ -73,27 +73,6 @@ class Tuner(Event):
 	note: int
 	offset: int
 
-# @dataclass(frozen=True, slots=True)
-# class BaseEvent: pass
-#
-# type EventType = Literal['whole_preset', 'list_sel', 'preset_sel', 'list_name', 'preset_name']
-# @dataclass(frozen=True, slots=True)
-# class Event(BaseEvent):
-# 	typ: EventType
-#
-# type ModuleEventType = Literal['on_off', 'tempo1', 'tempo2', 'fswitch']
-# @dataclass(frozen=True, slots=True)
-# class ModuleEvent(BaseEvent):
-# 	typ: ModuleEventType
-# 	mod_idx: int
-#
-# type KnobEventType = Literal['value', 'min', 'max', 'ctrl']
-# @dataclass(frozen=True, slots=True)
-# class KnobEvent(BaseEvent):
-# 	typ: KnobEventType
-# 	mod_idx: int
-# 	knob_id: int
-
 class EvListener:
 	model: 'Model'
 	async def on_ev(self, ev: Event): ...
