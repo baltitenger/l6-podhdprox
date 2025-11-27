@@ -161,7 +161,7 @@ class UsbAdapter(UsbTransport, model.EvListener):
 				self.model.sel_list = sl
 				self.send_ev(model.ListSel())
 			case 0x33:
-				print('DSP overload!!')
+				self.send_ev(model.DspOvl())
 			# case 0x34: midi assignments
 			# guess: 0x35 to query names
 			case 0x36:

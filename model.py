@@ -73,6 +73,9 @@ class Tuner(Event):
 	note: int
 	offset: int
 
+@dataclass(frozen=True, slots=True)
+class DspOvl(Event): pass
+
 class EvListener:
 	model: 'Model'
 	async def on_ev(self, ev: Event): ...

@@ -145,7 +145,7 @@ def _load_img(img_idx: int):
 	if img_idx == 0:
 		return QPixmap()
 	pm = QPixmap(f':/img/{img_idx:03}.png')
-	pm.setDevicePixelRatio(max(pm.width()/120, pm.height()/120))
+	pm.setDevicePixelRatio(max(pm.width(), pm.height())/120)
 	return pm
 
 def load_img(mod: ModState):
@@ -557,7 +557,14 @@ class MainWindow(QMainWindow, EvListener):
 	async def on_ev(self, ev: Event):
 		match ev:
 			case model.WholePreset():
+				# will be sent after listsel and presetsel too, so no need to handle those explicitly
 				self.reload()
+				if self.setlist_dialog is not None:
+					# current preset's name might have changed
+					self.setlist_dialog.reload()
+			case model.ListName():
+				if self.setlist_dialog is not None:
+					self.setlist_dialog.reload()
 			case model.KnobEvent(mod_idx, knob_id):
 				kn = self.mods[mod_idx].knobs[knob_id]
 				match ev:
@@ -572,6 +579,13 @@ class MainWindow(QMainWindow, EvListener):
 				match ev:
 					case model.ModuleOnOff():
 						mod.refresh_en()
+			case model.ParamChangeInt(nr):
+				if nr == 0x34 or nr == 0x35:
+					if (mod := self.mods.get(nr - 0x34)) is not None:
+						assert isinstance(mod, AmpModView)
+						mod.refresh_mic()
+			case model.DspOvl():
+				QMessageBox.warning(self, 'DSP Overload', 'Hardware reported DSP overload!', QMessageBox.StandardButton.Ok)
 
 	def create_mod(self, side: int, mod_idx: ModIdx, col: int | None = None):
 		# if self.model.preset.modules[mod_idx].model is no_mod:
