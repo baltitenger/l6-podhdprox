@@ -41,8 +41,8 @@ def test_move_amp():
 def test_pxio_vs_usb_parse():
 	usb_pres = PresetState()
 	with (
-			open('junk/init.pxb', 'rb') as pxb,
-			open('junk/init.bin', 'rb') as usb):
+			open('test_data/init.pxb', 'rb') as pxb,
+			open('test_data/init.bin', 'rb') as usb):
 		pxb_it = (pres for sl in parse_pxb(pxb) for pres in sl.presets)
 		for i, pxb_pres in enumerate(pxb_it):
 			usb_pres.load(usb.read(0x1000), LEStruct)
