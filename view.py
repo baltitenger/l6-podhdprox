@@ -585,7 +585,7 @@ class MainWindow(QMainWindow, EvListener):
 						assert isinstance(mod, AmpModView)
 						mod.refresh_mic()
 			case model.DspOvl():
-				QMessageBox.warning(self, 'DSP Overload', 'Hardware reported DSP overload!', QMessageBox.StandardButton.Ok)
+				self.show_msg_box(QMessageBox.Icon.Warning, 'DSP Overload', 'DSP limit reached.\nReduce usage to free up additional DSP resources.')
 
 	def create_mod(self, side: int, mod_idx: ModIdx, col: int | None = None):
 		# if self.model.preset.modules[mod_idx].model is no_mod:
@@ -755,3 +755,12 @@ class MainWindow(QMainWindow, EvListener):
 		x = self.centralWidget().x() + self.gr.cellRect(0, ins.col).right() + self.gr.verticalSpacing() // 2
 		y = self.centralWidget().y() + (self.gr.cellRect(side % 2, 0).top() + self.gr.cellRect(side // 2 + side % 2, 0).bottom()) // 2
 		painter.drawLine(x, y-50, x, y+50)
+
+	def show_msg_box(self, icon: QMessageBox.Icon, title: str, text: str):
+		# show a message box without blocking. needed to work around a QAsyncio related issue
+		msgBox = QMessageBox(self)
+		msgBox.setIcon(icon)
+		msgBox.setWindowTitle(title)
+		msgBox.setText(text)
+		msgBox.setStandardButtons(QMessageBox.StandardButton.Ok)
+		msgBox.show()

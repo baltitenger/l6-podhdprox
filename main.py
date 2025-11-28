@@ -19,18 +19,18 @@ class Main:
 				hdl: USBDeviceHandle = dev.open()
 				ad = UsbAdapter(hdl, self.model)
 			except USBError as e:
-				QMessageBox.critical(self.mw, 'Failed connecting to USB device',
+				self.mw.show_msg_box(QMessageBox.Icon.Critical,
+					'Failed connecting to USB device',
 					f'Failed connecting to USB device with error {e}.\n'
 					'Make sure no other program or driveris accessing the hardware '
-					'and that you have sufficient privileges.',
-					QMessageBox.StandardButton.Ok)
+					'and that you have sufficient privileges.')
 				return
 			async with asyncio.TaskGroup() as tg:
 				tg.create_task(ad.rx_loop())
 				await ad.on_ev(Startup())
 			self.model.listeners.remove(ad)
-			QMessageBox.information(self.mw, 'USB Disconnected',
-				'The USB device was disconnected.', QMessageBox.StandardButton.Ok)
+			self.mw.show_msg_box(QMessageBox.Icon.Information, 'USB Disconnected',
+				'The USB device was disconnected.')
 
 	def usb_poller(self):
 		while self.run:

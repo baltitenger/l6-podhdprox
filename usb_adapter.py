@@ -1,3 +1,5 @@
+from asyncio import sleep
+
 from usb1 import USBDeviceHandle
 
 from data import semitones
@@ -20,17 +22,20 @@ cmd2evt: dict[int, type[model.Event]] = {
 
 evt2cmd = { v: k for k, v in cmd2evt.items() }
 
-# TODO error handling (malformed msg, disconnect, etc)
 class UsbAdapter(UsbTransport, model.EvListener):
 	def __init__(self, hdl: USBDeviceHandle, model: model.Model) -> None:
 		super().__init__(hdl)
 		model.listeners.append(self)
 		self.model = model
+		self.ready = False
 
 	async def on_ev(self, ev: model.Event):
 		preset = self.model.preset
 		match ev:
 			case model.Startup():
+				while not self.ready:
+					await self.send_cmd(0x21, struct.pack('i', 0))
+					await sleep(0.1)
 				await self.send_cmd(0x21, struct.pack('i', 9)) # get selected list
 				await self.send_cmd(0x21, struct.pack('i', 8)) # get selected preset
 				await self.send_cmd(0x00, struct.pack('2h', -1, -1)) # get active preset
@@ -54,8 +59,8 @@ class UsbAdapter(UsbTransport, model.EvListener):
 			case model.ParamChangeFlt(nr):
 				arg = self.model.preset.flt_params[nr]
 				await self.send_cmd(0x16, struct.pack('4x2if', 0, nr, arg))
-			case model.KnobEvent(mod, knob_id):
-				knob = preset.modules[mod].knobs[knob_id]
+			case model.KnobEvent(mod_idx, knob_id):
+				knob = preset.modules[mod_idx].knobs[knob_id]
 				match ev:
 					case model.KnobValue(): arg = knob.val
 					case model.KnobMin():   arg = knob.min
@@ -63,9 +68,10 @@ class UsbAdapter(UsbTransport, model.EvListener):
 					case model.KnobCtrl():  arg = knob.ctrl
 					case _: assert False, 'messed up'
 				fmt = int(isinstance(arg, float))
-				await self.send_cmd(evt2cmd[type(ev)], struct.pack('4x3i'+'if'[fmt], ev.mod_idx, fmt, ev.knob_id, arg))
-			case model.ModuleEvent(mod):
-				module = preset.modules[mod]
+				mod_idx = {1: 2, 2: 1}.get(mod_idx, mod_idx)
+				await self.send_cmd(evt2cmd[type(ev)], struct.pack('4x3i'+'if'[fmt], mod_idx, fmt, ev.knob_id, arg))
+			case model.ModuleEvent(mod_idx):
+				module = preset.modules[mod_idx]
 				match ev:
 					case model.ModuleType():    arg = module.model_id
 					case model.ModuleOnOff():   arg = module.en
@@ -73,7 +79,8 @@ class UsbAdapter(UsbTransport, model.EvListener):
 					case model.ModuleTempo2():  arg = module.tempo2
 					case model.ModuleFswitch(): arg = module.fs
 					case _: assert False, 'messed up'
-				await self.send_cmd(evt2cmd[type(ev)], struct.pack('4x2i', mod, arg))
+				mod_idx = {1: 2, 2: 1}.get(mod_idx, mod_idx)
+				await self.send_cmd(evt2cmd[type(ev)], struct.pack('4x2i', mod_idx, arg))
 
 	async def on_pkt(self, is_resp: int, cmd: int, data: bytes):
 		mod_idx: int
@@ -83,6 +90,7 @@ class UsbAdapter(UsbTransport, model.EvListener):
 
 		if issubclass(evt, model.KnobEvent):
 			mod_idx, fmt, knob_id = struct.unpack('4x3i', data[:-4])
+			mod_idx = {1: 2, 2: 1}.get(mod_idx, mod_idx)
 			assert fmt in (0, 1)
 			arg, = struct.unpack('if'[fmt], data[-4:])
 			mod = self.model.preset.modules[mod_idx]
@@ -130,7 +138,10 @@ class UsbAdapter(UsbTransport, model.EvListener):
 				# print(f'param ({nr}) {params[nr][2]} changed: {val}')
 			case 0x22:
 				nr, val = struct.unpack('4xii', data)
-				if nr == 9:
+				if nr == 0:
+					# not sure what this actually is but good enough for this purpose
+					self.ready = True
+				elif nr == 9:
 					self.model.sel_list = val
 					self.send_ev(model.ListSel())
 				elif nr == 8:
