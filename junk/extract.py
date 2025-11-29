@@ -6,6 +6,14 @@ import xml.sax
 
 from data import AmpModInfo, Dropdown, KnobInfo, ModInfo
 
+if 1 == 1:
+	print('This file is included for documentation purposes only.')
+	print('In order to run, some files need to be extracted from'
+	      'the original software and this file needs to be updated'
+	      'accordingly with paths and offsets')
+	exit(1)
+
+# installer can be extracetd with 7zip
 src = '/home/baltazar/Downloads/4/POD HD Pro X Edit'
 
 class HexInt(int):
@@ -83,7 +91,7 @@ with open(f'{src}/POD HD Pro X Edit.exe', 'rb') as f:
 	# input dropdowns
 	f.seek(0x00118c80)
 	# TODO variax stuff, midi ch, etc
-	# models
+	# model names
 	f.seek(0x00119a08)
 	while True:
 		str_id, id = struct.unpack('4si', f.read(8))
@@ -127,10 +135,9 @@ with open(f'{src}/POD HD Pro X Edit.exe', 'rb') as f:
 
 	# data in 0x520f60 is supposed to have the presets, but it's filled by a fn at 0x4ca440
 
-#print(stuff)
-
 # core dump created manually, offset not predictable
 with open('dump', 'rb') as f:
+	# rest of the modules
 	f.seek(0x00444f60)
 	while True:
 		# buf = f.read(0x31c)
@@ -205,8 +212,6 @@ with open('dump', 'rb') as f:
 # 00135c78: b400 0000 0c00 0000 ac00 0000 2a00 0000 534c 5444 0200 0000 4200 0100  ............*...SLTD....B...
 # 00135c94: eb00 0000 0c00 0000 e100 0000 2a00 0000 3443 5444 0300 0000 4200 0100  ............*...4CTD....B...
 
-# exit(0)
-
 def chunk_bytes(buf: bytes, n: int, start = 0, maxc = None):
 	stop = len(buf) if maxc is None else start + n*maxc
 	return (buf[i:i+n] for i in range(start, stop, n))
@@ -218,13 +223,14 @@ def set_defs(data: bytes):
 	n_knobs = data[0xf]
 	models[mod_id].defs = list(chunk_bytes(data, 20, 0x10, n_knobs))
 
+# extracted from hardware
 with open('defaults.bin', 'rb') as f:
 	while data := f.read(0x1000):
 		set_defs(data[0x028:0x128])
 		set_defs(data[0x428:0x528])
 
 imgs = { mod.img_idx for mod in models.values() } - {0}
-with open('app.qrc', 'w') as f:
+with open('resources.qrc', 'w') as f:
 	f.write('<RCC><qresource prefix="/" compression-algorithm="none">\n')
 	for i in imgs:
 		f.write(f'<file>img/{i:03}.png</file>\n')

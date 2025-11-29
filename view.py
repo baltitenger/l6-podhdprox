@@ -46,7 +46,7 @@ from PySide6.QtWidgets import (
 	QWidget,
 )
 
-import app_rc
+import resources
 from data import KnobId, ModIdx, ModInfo, categories, ranges
 from data_gen import dropdowns, models
 from model import EvListener, Event
