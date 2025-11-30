@@ -5,7 +5,13 @@ import sys
 
 from PySide6 import QtAsyncio
 from PySide6.QtWidgets import QApplication, QMessageBox
-from usb1 import HOTPLUG_EVENT_DEVICE_ARRIVED, USBContext, USBDevice, USBDeviceHandle, USBError
+from usb1 import (
+	HOTPLUG_EVENT_DEVICE_ARRIVED,
+	USBContext,
+	USBDevice,
+	USBDeviceHandle,
+	USBError,
+)
 
 from model import Model, Startup
 from usb_adapter import UsbAdapter

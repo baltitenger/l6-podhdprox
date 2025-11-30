@@ -202,7 +202,9 @@ class PresetState:
 		return bytes(res)
 
 	def swap_amps(self):
-		pass # TODO
+		# TODO this might be hard to get right
+		# needs to take care of: amps, cabs, global parameters
+		pass
 
 	def amp_pos(self):
 		return self.modules[0].pos & 0xff

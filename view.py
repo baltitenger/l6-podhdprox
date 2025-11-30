@@ -17,9 +17,11 @@ from PySide6.QtCore import (
 )
 from PySide6.QtGui import (
 	QAction,
+	QCloseEvent,
 	QIcon,
 	QKeySequence,
 	QMouseEvent,
+	QPaintEvent,
 	QPainter,
 	QPen,
 	QPixmap,
@@ -46,12 +48,12 @@ from PySide6.QtWidgets import (
 	QWidget,
 )
 
-import resources
 from data import KnobId, ModIdx, ModInfo, categories, ranges
 from data_gen import dropdowns, models
 from model import EvListener, Event
 import model
 from pxio import Setlist, parse_any_px, write_pxb, write_pxe, write_pxs
+import resources
 from structs import KnobState, ModState, PresetState, lane_map, no_mod
 
 no_amp = ModInfo(no_mod.id, '[amp disabled]', 0, {}, [], [])
@@ -413,13 +415,11 @@ class MainWindow(QMainWindow, EvListener):
 		tb = self.addToolBar('Main Toolbar')
 		tb.setMovable(False)
 		openAct = tb.addAction(QIcon.fromTheme(QIcon.ThemeIcon.DocumentOpen), 'Open')
-		openAct.triggered.connect(self.opendialog)
+		openAct.triggered.connect(self.open_dialog)
 		openAct.setShortcut(QKeySequence.StandardKey.Open)
 		saveAct = tb.addAction(QIcon.fromTheme(QIcon.ThemeIcon.DocumentSaveAs), 'Save As')
-		saveAct.triggered.connect(self.savedialog)
+		saveAct.triggered.connect(self.save_dialog)
 		saveAct.setShortcut(QKeySequence.StandardKey.Save)
-		# tb.addSeparator()
-		# tb.addAction(QIcon.fromTheme(QIcon.ThemeIcon.ListAdd), 'Add Module').triggered.connect(self.add_module)
 		self.top_label = QLabel(alignment=Qt.AlignmentFlag.AlignCenter)
 		self.top_label.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Preferred)
 		tb.addWidget(self.top_label)
@@ -453,7 +453,7 @@ class MainWindow(QMainWindow, EvListener):
 		self.dropins = -1
 
 	@Slot(QAction)
-	def opendialog(self, act: QAction):
+	def open_dialog(self, act: QAction):
 		file, filt = QFileDialog.getOpenFileName(self, filter='POD HD Pro X Files (*.pxe *.pxs *.pxb)')
 		if file == '':
 			return
@@ -477,7 +477,7 @@ class MainWindow(QMainWindow, EvListener):
 			self.pres_changed()
 
 	@Slot(QAction)
-	def savedialog(self, act: QAction):
+	def save_dialog(self, act: QAction):
 		filters = (
 			'POD HD Pro X Patch Files (*.pxe)',
 			'POD HD Pro X Setlist Files (*.pxs)',
@@ -497,17 +497,6 @@ class MainWindow(QMainWindow, EvListener):
 					write_pxb(f, self.model.bank)
 		except OSError as e:
 			QMessageBox.critical(self, 'Failed writing file', f'Failed writing file: {e}', QMessageBox.StandardButton.Ok)
-
-	@Slot(QAction)
-	def add_module(self, act: QAction):
-		mods = self.model.preset.modules
-		try:
-			idx = next(i for i, mod in enumerate(mods[4:], 4) if mod.info is no_mod)
-		except StopIteration:
-			return
-		mods[idx].change_type(0x2000011)
-		self.send_ev(model.ModuleType(idx))
-		self.reload()
 
 	@Slot(QAction)
 	def next_pres(self, act: QAction):
@@ -607,7 +596,7 @@ class MainWindow(QMainWindow, EvListener):
 				return
 		self.ins_points.append(InsPoint(lane, lane_pos, side, col))
 
-	def pr_lane(self, lane: int):
+	def create_lane_mods(self, lane: int):
 		lm = lane_map[lane]
 		lanes = self.model.preset.lanes
 		if lm.pos == self.amp_pos and lm.end == 0 and lm.amp not in self.mods:
@@ -631,33 +620,32 @@ class MainWindow(QMainWindow, EvListener):
 		self.gr.setRowMinimumHeight(0, 120)
 		self.gr.setRowMinimumHeight(1, 120)
 		self.amp_pos = self.model.preset.amp_pos()
-		self.pr_lane(0)
-		self.lrsplit = self.gr.columnCount()
-		self.pr_lane(1)
-		self.pr_lane(3)
-		self.lrswitch = self.gr.columnCount()
-		self.pr_lane(2)
-		self.pr_lane(4)
+		self.create_lane_mods(0)
+		lrsplit = self.gr.columnCount()
+		self.create_lane_mods(1)
+		self.create_lane_mods(3)
+		self.create_lane_mods(2)
+		self.create_lane_mods(4)
 		# print(  '  mix  ')
-		self.lrjoin = self.gr.columnCount()
-		self.pr_lane(5)
+		lrjoin = self.gr.columnCount()
+		self.create_lane_mods(5)
 
 		line1 = Line1()
 		line2 = Line2()
 		line3 = Line1()
-		if self.lrsplit > 1:
-			self.gr.addWidget(line1, 0, 1, 2, self.lrsplit-1)
-		if self.lrjoin != self.lrsplit:
-			self.gr.addWidget(line2, 0, self.lrsplit, 2, self.lrjoin-self.lrsplit)
-		if self.lrjoin != self.gr.columnCount():
-			self.gr.addWidget(line3, 0, self.lrjoin, 2, self.gr.columnCount() - self.lrjoin)
+		if lrsplit > 1:
+			self.gr.addWidget(line1, 0, 1, 2, lrsplit-1)
+		if lrjoin != lrsplit:
+			self.gr.addWidget(line2, 0, lrsplit, 2, lrjoin-lrsplit)
+		if lrjoin != self.gr.columnCount():
+			self.gr.addWidget(line3, 0, lrjoin, 2, self.gr.columnCount() - lrjoin)
 		line1.lower()
 		line2.lower()
 		line3.lower()
 
-	def closeEvent(self, event, /) -> None:
+	def closeEvent(self, ev: QCloseEvent, /) -> None:
 		self.on_closed()
-		return super().closeEvent(event)
+		return super().closeEvent(ev)
 
 	def is_valid_drag(self, ev: QMouseEvent):
 		top = self.centralWidget().y() + self.gr.cellRect(0, 0).top()
@@ -682,18 +670,18 @@ class MainWindow(QMainWindow, EvListener):
 		self.dragmod = self.dropins = -1
 		self.setCursor(Qt.CursorShape.ArrowCursor)
 
-	def mousePressEvent(self, event: QMouseEvent, /) -> None:
-		if event.button() != Qt.MouseButton.LeftButton:
+	def mousePressEvent(self, ev: QMouseEvent, /) -> None:
+		if ev.button() != Qt.MouseButton.LeftButton:
 			if self.dragmod != -1:
 				self.drag_end()
 				self.update()
 			return
-		col = self.mouse2col(event)
+		col = self.mouse2col(ev)
 		self.dragmod = self.cols.get(col, self.cols.get(col-1, -1))
 		if self.dragmod != -1:
 			self.setCursor(Qt.CursorShape.DragMoveCursor)
 
-	def mouseReleaseEvent(self, event: QMouseEvent, /) -> None:
+	def mouseReleaseEvent(self, ev: QMouseEvent, /) -> None:
 		if self.dragmod == -1:
 			return
 		dragmod, dropins = self.dragmod, self.dropins
@@ -732,16 +720,16 @@ class MainWindow(QMainWindow, EvListener):
 				return -1
 		return dropins
 
-	def mouseMoveEvent(self, event: QMouseEvent, /) -> None:
+	def mouseMoveEvent(self, ev: QMouseEvent, /) -> None:
 		if self.dragmod == -1:
 			return
-		dropins = self.fix_ins_point(self.mouse2ins(event))
+		dropins = self.fix_ins_point(self.mouse2ins(ev))
 		if dropins != self.dropins:
 			self.dropins = dropins
 			self.update()
 
-	def paintEvent(self, event, /) -> None:
-		super().paintEvent(event)
+	def paintEvent(self, ev: QPaintEvent, /) -> None:
+		super().paintEvent(ev)
 
 		if self.dropins == -1:
 			return

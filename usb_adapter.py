@@ -147,8 +147,8 @@ class UsbAdapter(UsbTransport, model.EvListener):
 				elif nr == 8:
 					self.model.sel_preset = val
 					self.send_ev(model.PresetSel())
-				else:
-					print(f'thing {nr}: {val}')
+				# else:
+				# 	print(f'thing {nr}: {val}')
 			case 0x24:
 				note, y, z, w = struct.unpack('ihbb', data)
 				if note >= 0:
@@ -185,4 +185,6 @@ class UsbAdapter(UsbTransport, model.EvListener):
 				# no data, sent after changing preset / list
 				pass
 			case _:
-				print('res' if is_resp else 'evt', hex(cmd), data.hex())
+				# unknown events
+				pass
+				# print('res' if is_resp else 'evt', hex(cmd), data.hex())
